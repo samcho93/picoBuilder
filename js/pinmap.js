@@ -9,7 +9,7 @@ const PICO_RIGHT = ['GP16', 'GP17', 'GND', 'GP18', 'GP19', 'GP20', 'GP21', 'GND'
 
 function gpioFunctions(n) {
   const f = [];
-  if (n >= 26 && n <= 28) f.push('ADC' + (n - 26));
+  if (n >= 26 && n <= 29) f.push('ADC' + (n - 26));
   f.push(`I2C${(n >> 1) & 1} ${n % 2 ? 'SCL' : 'SDA'}`);
   f.push(`SPI${(n >> 3) & 1} ${['RX', 'CSn', 'SCK', 'TX'][n % 4]}`);
   const u = ['TX', 'RX', 'CTS', 'RTS'][n % 4];

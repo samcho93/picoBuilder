@@ -208,12 +208,29 @@ def('adc_read', {
   },
 });
 def('onboard_led', {
-  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
-  stmt(n, G) { G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [`led_onboard.value(${G.expr(n, 'value')})`]; },
+  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2 / RP2040-Zero: GP16 RGB LED를 흰색으로)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) {
+    if (G.B.zero) { zeroBoardLed(G); return [`board_led(${G.expr(n, 'value')})`]; }
+    G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [`led_onboard.value(${G.expr(n, 'value')})`];
+  },
 });
 def('onboard_toggle', {
-  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
-  stmt(n, G) { G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [G.B.toggle(G, 'led_onboard')]; },
+  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
+  stmt(n, G) {
+    if (G.B.zero) { zeroBoardLed(G); return ['board_led(not _board_led_on)']; }
+    G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [G.B.toggle(G, 'led_onboard')];
+  },
+});
+def('board_rgb', {
+  label: '보드 RGB LED', cat: 'gpio', boards: ['rp2040zero'], desc: 'RP2040-Zero 내장 WS2812 RGB LED(GP16) 색을 설정합니다 (0~255).', ins: [X(), D('r', 'number', 0, 'R'), D('g', 'number', 40, 'G'), D('b', 'number', 0, 'B')], outs: [X('out')],
+  stmt(n, G) {
+    zeroRgb(G);
+    return [`board_rgb[0] = (int(${G.expr(n, 'r')}), int(${G.expr(n, 'g')}), int(${G.expr(n, 'b')}))`, 'board_rgb.write()'];
+  },
+});
+def('bootsel', {
+  label: 'BOOT 버튼 눌림?', cat: 'gpio', boards: ['pico', 'rp2040zero'], desc: '보드의 BOOTSEL/BOOT 버튼 상태 (rp2.bootsel_button)', ins: [], outs: [OUT('p', 'bool', '눌림')],
+  expr(n, G) { G.imp('import rp2'); return 'rp2.bootsel_button() == 1'; },
 });
 def('cpu_temp', {
   label: '내부 온도센서', cat: 'gpio', desc: '보드 내장 온도(°C) — Pico: ADC4 / micro:bit: temperature()', ins: [], outs: [OUT('t', 'number', '°C')],
@@ -315,7 +332,7 @@ def('m_pir', {
   expr(n, G) { const d = G.dev(n); return d ? `${G.B.read(d.name)} == 1` : 'False'; },
 });
 def('m_dht', {
-  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
+  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
   expr(n, G, port) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('dht', "_dht_cache = {}\ndef dht_read(d):\n    now = time.ticks_ms()\n    c = _dht_cache.get(id(d))\n    if c is None or time.ticks_diff(now, c[0]) > 2000:\n        try:\n            d.measure()\n            c = (now, d.temperature(), d.humidity())\n        except OSError:\n            c = (now, c[1], c[2]) if c else (now, 0, 0)\n        _dht_cache[id(d)] = c\n    return c");
@@ -323,7 +340,7 @@ def('m_dht', {
   },
 });
 def('m_ds18', {
-  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
+  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
   expr(n, G) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('ds18', 'def ds_temp(d, roms):\n    if not roms:\n        return None\n    d.convert_temp()\n    time.sleep_ms(750)\n    return round(d.read_temp(roms[0]), 2)');
@@ -532,6 +549,16 @@ def('esp_touch', {
   },
 });
 
+// RP2040-Zero 내장 WS2812 (GP16)
+function zeroRgb(G) {
+  G.imp('import neopixel');
+  G.setup('board_rgb', 'board_rgb = neopixel.NeoPixel(Pin(16), 1)  # 내장 RGB LED');
+}
+function zeroBoardLed(G) {
+  zeroRgb(G);
+  G.helper('board_led', '_board_led_on = False\n\ndef board_led(on):\n    global _board_led_on\n    _board_led_on = bool(on)\n    board_rgb[0] = (40, 40, 40) if on else (0, 0, 0)\n    board_rgb.write()');
+}
+
 function analogExpr(G, raw, unit) {
   const mx = G.B.adcMax;
   return unit === 'pct' ? `round(${raw} * 100 / ${mx})` : unit === 'volt' ? `round(${raw} * 3.3 / ${mx}, 2)` : raw;
@@ -628,6 +655,8 @@ DIALECTS.esp32 = {
   toggle: (G, v) => `${v}.value(not ${v}.value())`,
 };
 DIALECTS.pico.ledPin = "'LED'";
+// RP2040-Zero: Pico와 같은 RP2040 MicroPython (핀 배치/내장 LED만 다름)
+DIALECTS.rp2040zero = { ...DIALECTS.pico, zero: true };
 
 // ================= 코드 생성기 =================
 function generateCode(graph, sim) {

@@ -1743,8 +1743,11 @@ def get_ident():
     return 1
 `;
 
-PY_SIM.rp2 = String.raw`def bootsel_button():
-    return 0
+PY_SIM.rp2 = String.raw`import pbhw
+
+
+def bootsel_button():
+    return int(pbhw.bootsel())
 
 
 class PIO:

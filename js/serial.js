@@ -149,7 +149,8 @@ class PicoSerial {
     const ver = (await this.exec('import sys\nprint(sys.implementation.name, sys.version, sys.platform)')).trim();
     progress('보드: ' + ver);
     const actual = /microbit|nrf/i.test(ver) ? 'microbit' : /esp32/i.test(ver) ? 'esp32' : /rp2/i.test(ver) ? 'pico' : null;
-    if (actual && actual !== board) progress(`⚠ 프로젝트는 ${BOARDS[board].short}용인데 연결된 보드는 ${BOARDS[actual].short}입니다`);
+    const fam = b => b === 'rp2040zero' ? 'pico' : b;
+    if (actual && actual !== fam(board)) progress(`⚠ 프로젝트는 ${BOARDS[board].short}용인데 연결된 보드는 ${BOARDS[actual].short}입니다`);
   }
 
   async guard(fn) {

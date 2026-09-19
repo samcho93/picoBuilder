@@ -359,3 +359,33 @@ g.w .hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: st
 .extabs em { font-style: normal; opacity: .7; margin-left: 2px; }
 .exlist { overflow-y: auto; padding-top: 4px; }.ddmenu .extabs, .ddmenu .exlist { cursor: default; border-radius: 0; padding-left: 2px; padding-right: 2px; }
 .ddmenu .extabs:hover, .ddmenu .exlist:hover { background: none; }
+
+/* ---------- RP2040-Zero ---------- */
+.node.rp2040zero { width: 250px; background: #1d3b8c; border-color: #2e9e57; }
+.zero-board { padding: 10px 0 6px; }
+.zero-main { display: flex; }
+.zcol { display: flex; flex-direction: column; gap: 3px; padding-top: 4px; }
+.zcol.r { align-items: flex-end; }
+.zrow { display: flex; align-items: center; height: 19px; }
+.zrow .port { margin: 0 -6px; background: #c9a33a; border-color: #1d3b8c; }
+.zero-board .port.t-gnd { background: #222; border-color: #555; }
+.zero-board .port.t-power { background: #e53935; }
+.zero-board .port.t-power5 { background: #ff7043; }
+.zero-board .plbl { width: 58px; padding-left: 10px; color: #e8efff; }
+.zero-board .plbl.r { text-align: right; padding: 0 10px 0 0; }
+.zcenter { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.usbc { width: 40px; height: 14px; background: linear-gradient(#cfd3d6, #8f969b); border-radius: 6px; }
+.zbtns { display: flex; gap: 6px; }
+.zbtn { font-size: 8px; font-weight: 700; padding: 3px 4px; border-radius: 3px; background: #ddd; color: #333; cursor: pointer; user-select: none; }
+.zbtn.on { background: #58a6ff; color: #fff; }
+.zbtn.rst { cursor: default; opacity: .7; }
+.zrgb { width: 16px; height: 16px; border-radius: 3px; background: #eee; border: 2px solid #bbb; }
+.rp2040.sm { width: 46px; height: 46px; margin-top: 2px; font-size: 9px; }
+.zbottom { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+.zep { display: flex; flex-direction: column; align-items: center; width: 22px; }
+.zep .plbl { width: auto !important; padding: 0 !important; font-size: 10px; text-align: center; }
+.zep .port { margin-top: 2px; background: #c9a33a; }
+.zback { margin: 10px 8px 0; border-top: 1px dashed #5c7ac7; padding-top: 4px; }
+.zbacklbl { font-size: 10px; color: #aac0f0; text-align: center; margin-bottom: 2px; }
+.zbackpins { display: flex; justify-content: center; gap: 1px; }
+.zbackpins .zep { width: 20px; }

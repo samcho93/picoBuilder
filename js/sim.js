@@ -373,9 +373,10 @@ function makeHwApi(sim) {
         const T = 24 + Math.random() * 1.5;
         return Math.round((0.706 - (T - 27) * 0.001721) / 3.3 * 65535);
       }
-      if (ch === 3) return Math.round(5.0 / 3 / 3.3 * 65535);
       sim.step();
       const ni = sim.gpioNet(26 + ch);
+      // Pico: GP29(ADC3)은 내부 VSYS/3 / RP2040-Zero: GP29가 핀으로 노출됨
+      if (ch === 3 && ni < 0) return Math.round(5.0 / 3 / 3.3 * 65535);
       const v = sim.netV(ni);
       if (v == null) return Math.round(300 + Math.random() * 1500);
       const noise = (Math.random() - 0.5) * 60;
@@ -411,6 +412,7 @@ function makeHwApi(sim) {
     mb_touched(g) { sim.step(); const ni = sim.gpioNet(g); return ni >= 0 && sim.netV(ni) === 0 && sim.nets[ni].terms.length > 1; },
     run_ms: () => performance.now() - (sim.startMs || 0),
     board_type: () => (sim.board() || { type: 'pico' }).type,
+    bootsel: () => { const b = sim.board(); return b && b.st.boot ? 1 : 0; },
 
     // ---- ESP32 전용 ----
     esp_wifi(s) { const b = sim.board(); if (b) b.rt.wifi = String(s); },
@@ -493,6 +495,8 @@ function makeHwApi(sim) {
 
     neopixel_write(g, data) {
       sim.evaluate();
+      const b = sim.board();
+      if (b && BOARDS[b.type].rgbGpio === g) b.rt.rgb = s2b(data);
       const ni = sim.gpioNet(g);
       for (const { node } of sim.devicesOnNet(ni, (n, p) => n.type === 'neopixel' && p === 'DIN')) {
         if (sim.powered(node)) node.rt.pixels = s2b(data);

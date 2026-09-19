@@ -52,7 +52,7 @@ const BOARDS = {
       return `<div class="nhead" style="--c:#1b7f3b"><span class="ico">🍓</span><span class="ttl">Raspberry Pi Pico</span><b class="nm">RP2040</b></div>
         <div class="pico-board"><div class="usb"></div>
           <div class="pico-center"><div class="obled" title="내장 LED (GP25)"></div><span class="ledlbl">LED GP25</span>
-            <div class="rp2040">RP2040</div><div class="bootsel">BOOTSEL</div><div class="flash">W25Q16</div></div>
+            <div class="rp2040">RP2040</div><div class="bootsel" data-hold="boot" title="BOOTSEL 버튼 (rp2.bootsel_button())">BOOTSEL</div><div class="flash">W25Q16</div></div>
           <div class="prows">${rows.join('')}</div>
         </div>`;
     },
@@ -238,6 +238,87 @@ BOARDS.esp32 = {
     b.classList.toggle('on', !!n.st.boot);
   },
   stop(n) { n.rt.wifi = ''; },
+};
+
+// ---------- Waveshare RP2040-Zero (USB-C 위쪽 기준) ----------
+// 왼쪽(위→아래): 5V GND 3V3 GP29 GP28 GP27 GP26 GP15 GP14 / 오른쪽: GP0~GP8 / 아래쪽(왼→오): GP13~GP9
+// 뒷면 납땜 패드: GND GP25~GP17 / GP16 = 내장 WS2812 RGB LED(DIN)
+const ZERO_LEFT = ['5V', 'GND', '3V3', 29, 28, 27, 26, 15, 14];
+const ZERO_RIGHT = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+const ZERO_BOTTOM = [13, 12, 11, 10, 9];
+const ZERO_BACK = ['GND', 25, 24, 23, 22, 21, 20, 19, 18, 17];
+const ZERO_PINS = (() => {
+  const pins = {};
+  const mk = (pre, list) => list.forEach((v, i) => {
+    const key = pre + (i + 1);
+    const p = { num: key, gpio: null, funcs: [], type: 'gpio' };
+    if (typeof v === 'number') { p.gpio = v; p.name = 'GP' + v; p.funcs = gpioFunctions(v); if (pre === 'U') p.funcs = ['뒷면 납땜 패드', ...p.funcs]; }
+    else if (v === 'GND') { p.name = 'GND'; p.type = 'gnd'; p.v = 0; }
+    else if (v === '3V3') { p.name = '3V3'; p.type = 'power'; p.v = 3.3; }
+    else { p.name = '5V'; p.type = 'power5'; p.v = 5.0; }
+    pins[key] = p;
+  });
+  mk('L', ZERO_LEFT); mk('R', ZERO_RIGHT); mk('B', ZERO_BOTTOM); mk('U', ZERO_BACK);
+  return pins;
+})();
+const ZERO_GPIO_KEY = {};
+Object.values(ZERO_PINS).forEach(p => { if (p.gpio != null) ZERO_GPIO_KEY[p.gpio] = p.num; });
+const ZERO_GPIOS = Object.keys(ZERO_GPIO_KEY).map(Number).sort((a, b) => a - b);
+
+BOARDS.rp2040zero = {
+  type: 'rp2040zero', id: 'zero', label: 'Waveshare RP2040-Zero', short: 'RP2040-Zero', icon: '🟩',
+  pins: ZERO_PINS,
+  gpios: ZERO_GPIOS,
+  pinLabel: g => 'GP' + g,
+  gpioKey: g => ZERO_GPIO_KEY[g] || null,
+  rgbGpio: 16,
+  desc: 'RP2040 · 264KB SRAM · 2MB Flash · USB-C · 초소형(23.5x18mm). 헤더로 20개 GPIO(GP0~15, GP26~29), 뒷면 납땜 패드로 GP17~25를 사용합니다. GP16은 내장 WS2812 RGB LED에 연결되어 있고 일반 LED는 없습니다. GP29는 ADC3으로 사용 가능합니다. MicroPython은 Pico(RP2040)용 펌웨어를 사용합니다.',
+  init: () => ({ boot: false }),
+  html(n) {
+    const tip = p => esc(`${p.name}${p.gpio != null ? ' (GPIO' + p.gpio + ')' : ''}\n${p.funcs.join(', ')}`);
+    const side = (pre, list, dir) => list.map((_, i) => {
+      const p = ZERO_PINS[pre + (i + 1)];
+      const port = `<i class="port k-pin t-${p.type}" data-t="zero:${p.num}" data-s="${dir}" title="${tip(p)}"></i>`;
+      const lbl = `<span class="plbl t-${p.type}${dir > 0 ? ' r' : ''}" data-g="${p.gpio ?? ''}">${p.name}</span>`;
+      return `<div class="zrow">${dir < 0 ? port + lbl : lbl + port}</div>`;
+    }).join('');
+    const down = (pre, list) => list.map((_, i) => {
+      const p = ZERO_PINS[pre + (i + 1)];
+      return `<div class="zep t-${p.type}"><span class="plbl t-${p.type}" data-g="${p.gpio ?? ''}">${p.gpio != null ? p.gpio : p.name}</span><i class="port k-pin t-${p.type}" data-t="zero:${p.num}" data-s="d" title="${tip(p)}"></i></div>`;
+    }).join('');
+    return `<div class="nhead" style="--c:#2e9e57"><span class="ico">🟩</span><span class="ttl">RP2040-Zero</span><b class="nm">Waveshare</b></div>
+      <div class="zero-board">
+        <div class="zero-main">
+          <div class="zcol">${side('L', ZERO_LEFT, -1)}</div>
+          <div class="zcenter">
+            <div class="usbc"></div>
+            <div class="zbtns"><span class="zbtn" data-hold="boot" title="BOOT 버튼 (rp2.bootsel_button())">BOOT</span><span class="zbtn rst" title="RESET">RESET</span></div>
+            <div class="zrgb" title="내장 WS2812 RGB LED (GP16)"></div><span class="ledlbl">RGB GP16</span>
+            <div class="rp2040 sm">RP2040</div>
+          </div>
+          <div class="zcol r">${side('R', ZERO_RIGHT, 1)}</div>
+        </div>
+        <div class="zbottom">${down('B', ZERO_BOTTOM)}</div>
+        <div class="zback"><div class="zbacklbl">뒷면 납땜 패드</div><div class="zbackpins">${down('U', ZERO_BACK)}</div></div>
+      </div>`;
+  },
+  render(n, sim) {
+    renderBoardPins(n, sim, 16);
+    const el = n._rgb && n._rgb.isConnected ? n._rgb : (n._rgb = n.el.querySelector('.zrgb'));
+    const px = sim.running ? n.rt.rgb : null;
+    const key = px ? Array.from(px.slice(0, 3)).join(',') : '';
+    if (el && el._k !== key) {
+      el._k = key;
+      const g = px ? px[0] : 0, r = px ? px[1] : 0, b = px ? px[2] : 0, m = Math.max(r, g, b);
+      const k = m ? 255 / m : 0, sc = Math.min(1, 0.35 + m / 120);
+      const c = `rgb(${r * k * sc | 0},${g * k * sc | 0},${b * k * sc | 0})`;
+      el.style.background = m ? c : '';
+      el.style.boxShadow = m ? `0 0 ${6 + m / 12}px 2px ${c}` : '';
+    }
+    const bt = n.el.querySelector('.zbtn[data-hold]');
+    if (bt) bt.classList.toggle('on', !!n.st.boot);
+  },
+  stop(n) { n.rt.rgb = null; },
 };
 
 const boardDef = n => n && BOARDS[n.type];

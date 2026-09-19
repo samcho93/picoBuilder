@@ -11,6 +11,7 @@ function buildProject(name, fn, board = 'pico') {
     _find: id => nodes.find(n => n.id === id),
     P(p) {
       if (board === 'microbit') return 'mb:' + (typeof p === 'number' ? 'P' + p : p);
+      if (board === 'rp2040zero') return 'zero:' + (typeof p === 'number' ? ZERO_GPIO_KEY[p] : { '5V': 'L1', GND: 'L2', '3V3': 'L3', GND2: 'L2' }[p]);
       if (board === 'esp32') return 'esp:' + (typeof p === 'number' ? ESP_GPIO_KEY[p] : { '3V3': 'L1', GND: 'R1', GND2: 'L14', GND3: 'R7', '5V': 'L19' }[p]);
       if (typeof p === 'number') return 'pico:' + p;
       if (/^GP\d+$/.test(p)) return 'pico:' + GPIO_TO_PIN[+p.slice(2)];
@@ -269,6 +270,120 @@ while True:
 
 // 예제에서 노드 입력 기본값을 지정할 때 사용
 function nodeSt(E, id) { return E._find(id).st; }
+
+// ---------------- RP2040-Zero 예제 ----------------
+EXAMPLES.push(
+  {
+    group: '🟩 Waveshare RP2040-Zero', board: 'rp2040zero',
+    name: 'Ⓩ① 내장 RGB LED 신호등', desc: 'GP16 WS2812 RGB LED로 빨강 → 노랑 → 초록 반복 (외부 부품 없음)',
+    build: () => buildProject('RP2040-Zero 신호등', E => {
+      const loop = E.node('ev_loop', 760, 40, { delay: 0 });
+      const seq = [[255, 0, 0, 1000], [255, 140, 0, 500], [0, 255, 0, 1000]];
+      const ids = [loop];
+      seq.forEach(([r, g, b, ms], i) => {
+        const c = E.node('board_rgb', 940 + i * 360, 40);
+        Object.assign(nodeSt(E, c), { r, g, b });
+        const w = E.node('wait', 1120 + i * 360, 40);
+        Object.assign(nodeSt(E, w), { ms });
+        ids.push(c, w);
+      });
+      E.flow(...ids);
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓩ② BOOT 버튼 → RGB LED', desc: '보드의 BOOT 버튼을 누르는 동안 RGB LED 파랑 (rp2.bootsel_button)',
+    build: () => buildProject('RP2040-Zero BOOT 버튼', E => {
+      const loop = E.node('ev_loop', 760, 40, { delay: 20 });
+      const iff = E.node('if', 940, 40);
+      const on = E.node('board_rgb', 1140, 0), off = E.node('board_rgb', 1140, 200);
+      Object.assign(nodeSt(E, on), { r: 0, g: 0, b: 255 }); Object.assign(nodeSt(E, off), { r: 0, g: 0, b: 0 });
+      E.flow(loop, iff);
+      E.w(iff + ':then', on + ':in'); E.w(iff + ':else', off + ':in');
+      const bs = E.node('bootsel', 760, 200);
+      E.data(bs + '.p', iff + '.cond');
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓩ③ 가변저항(GP29 ADC3) → 서보', desc: 'Pico에는 없는 ADC3(GP29) 핀으로 가변저항을 읽어 GP0 서보 제어',
+    build: () => buildProject('RP2040-Zero 서보', E => {
+      const pot = E.dev('pot', 120, 60, { flip: true });
+      const sv = E.dev('servo', 740, 60);
+      E.hw(pot, { VCC: '3V3', GND: 'GND', OUT: 29 });
+      E.hw(sv, { GND: 'GND2', VCC: '5V', SIG: 0 });
+      const loop = E.node('ev_loop', 1000, 40, { delay: 20 });
+      const m = E.node('m_servo', 1180, 40);
+      const a = E.node('m_analog', 1000, 200);
+      const map = E.node('map', 1180, 200);
+      E.flow(loop, m);
+      E.ref(sv, m); E.ref(pot, a);
+      E.data(a + '.value', map + '.x');
+      Object.assign(nodeSt(E, map), { b: 100, d: 180 });
+      E.data(map + '.r', m + '.angle');
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓩ④ AHT20 온습도 → OLED', desc: 'I2C0(SDA GP4 / SCL GP5)에 AHT20과 SSD1306 OLED 연결',
+    build: () => buildProject('RP2040-Zero AHT20 OLED', E => {
+      const oled = E.dev('oled', 740, 40);
+      const aht = E.dev('aht20', 740, 300);
+      E.hw(oled, { GND: 'GND2', VCC: '3V3', SCL: 5, SDA: 4 });
+      E.hw(aht, { VIN: '3V3', GND: 'GND2', SCL: 5, SDA: 4 });
+      const loop = E.node('ev_loop', 1040, 40, { delay: 1000 });
+      const c = E.node('m_oled_clear', 1210, 40);
+      const t1 = E.node('m_oled_text', 1380, 40), t2 = E.node('m_oled_text', 1580, 40);
+      const s = E.node('m_oled_show', 1780, 40);
+      E.flow(loop, c, t1, t2, s);
+      [c, t1, t2, s].forEach(n => E.ref(oled, n));
+      const a = E.node('m_aht', 1040, 250);
+      E.ref(aht, a);
+      const j1 = E.node('join', 1220, 240), j2 = E.node('join', 1220, 340);
+      Object.assign(nodeSt(E, j1), { a: 'Temp: ' }); Object.assign(nodeSt(E, j2), { a: 'Humi: ' });
+      E.data(a + '.t', j1 + '.b'); E.data(a + '.h', j2 + '.b');
+      E.data(j1 + '.r', t1 + '.text'); E.data(j2 + '.r', t2 + '.text');
+      Object.assign(nodeSt(E, t1), { y: 16 }); Object.assign(nodeSt(E, t2), { y: 36 });
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓩ⑤ [코드] RGB 무지개 + BOOT 밝기', desc: 'Python 직접 작성: 내장 RGB LED 무지개, BOOT 버튼으로 밝기 전환',
+    build: () => buildProject('RP2040-Zero 무지개 (코드)', () => ({
+      codeMode: 'manual', code: `from machine import Pin
+import neopixel, rp2, time
+
+led = neopixel.NeoPixel(Pin(16), 1)   # RP2040-Zero 내장 WS2812
+
+
+def wheel(p):
+    p %= 255
+    if p < 85:
+        return (255 - p * 3, p * 3, 0)
+    if p < 170:
+        p -= 85
+        return (0, 255 - p * 3, p * 3)
+    p -= 170
+    return (p * 3, 0, 255 - p * 3)
+
+
+bright = 1.0
+i = 0
+while True:
+    if rp2.bootsel_button():
+        bright = 0.15 if bright == 1.0 else 1.0
+        print('밝기:', bright)
+        while rp2.bootsel_button():
+            time.sleep_ms(10)
+    r, g, b = wheel(i)
+    led[0] = (int(r * bright), int(g * bright), int(b * bright))
+    led.write()
+    i += 3
+    time.sleep_ms(20)
+`,
+    }), 'rp2040zero'),
+  },
+);
 
 // ---------------- ESP32 예제 ----------------
 EXAMPLES.push(

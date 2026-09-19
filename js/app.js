@@ -97,7 +97,7 @@ class App {
       const d = DEVICES[n.type] || BOARDS[n.type];
       if (d && d.init) n.st = { ...d.init(), ...n.st };
       if (n.type === 'button') n.st.pressed = false;
-      if (BOARDS[n.type]) Object.assign(n.st, { btnA: false, btnB: false, logo: false });
+      if (BOARDS[n.type]) Object.assign(n.st, { btnA: false, btnB: false, logo: false, boot: false });
       n.rt = {};
     }
     this.circuit = c;
@@ -343,7 +343,7 @@ class App {
         if (!conn.length) return '';
         return `<tr><td>${n.type === 'pico' ? p.num : ''}</td><td><b>${p.name}</b></td><td>${conn.map(x => `<span class="tag">${esc(this.termLabel(x))}</span>`).join('')}</td></tr>`;
       }).join('');
-      el.innerHTML = `<h3><span class="sw" style="background:${{ pico: '#1b7f3b', microbit: '#2c7be5', esp32: '#c0392b' }[n.type]}"></span>${bd.icon} ${bd.label}</h3>
+      el.innerHTML = `<h3><span class="sw" style="background:${{ pico: '#1b7f3b', microbit: '#2c7be5', esp32: '#c0392b', rp2040zero: '#2e9e57' }[n.type]}"></span>${bd.icon} ${bd.label}</h3>
         <p class="desc">${esc(bd.desc)}</p>
         <table><tr><th>핀</th><th>이름</th><th>연결</th></tr>${rows || '<tr><td colspan=3>연결된 핀이 없습니다</td></tr>'}</table>`;
       return;
@@ -500,7 +500,8 @@ class App {
     this.switchTab('btabs', 'serial');
     try {
       const bt = this.boardType(), bn = BOARDS[bt].short;
-      if (this.serial.boardHint && this.serial.boardHint !== bt) prog(`⚠ 연결된 보드(${BOARDS[this.serial.boardHint].short})와 프로젝트 보드(${bn})가 다릅니다`);
+      const fam = b => b === 'rp2040zero' ? 'pico' : b;
+      if (this.serial.boardHint && fam(this.serial.boardHint) !== fam(bt)) prog(`⚠ 연결된 보드(${BOARDS[this.serial.boardHint].short})와 프로젝트 보드(${bn})가 다릅니다`);
       if (kind === 'upload') await this.serial.upload(code, libs, prog, bt);
       else await this.serial.runOnce(code, libs, prog, bt);
       this.setStatus(kind === 'upload' ? `✔ ${bn} 업로드 완료` : `▶ ${bn} 실행 중`, 'ok');
@@ -572,7 +573,7 @@ class App {
 
     const dd = $('btnEx').parentElement;
     // 예제 메뉴: 보드별 탭 + 스크롤 목록 (현재 보드 탭이 기본)
-    const exBoard = x => x.board || (/^Ⓜ/.test(x.name) ? 'microbit' : /^Ⓔ/.test(x.name) ? 'esp32' : 'pico');
+    const exBoard = x => x.board || (/^Ⓜ/.test(x.name) ? 'microbit' : /^Ⓔ/.test(x.name) ? 'esp32' : /^Ⓩ/.test(x.name) ? 'rp2040zero' : 'pico');
     const renderEx = bt => {
       $('exMenu').innerHTML = `<div class="extabs">${Object.values(BOARDS).map(b => `<button data-exb="${b.type}" class="${b.type === bt ? 'on' : ''}">${b.icon} ${esc(b.short)} <em>${EXAMPLES.filter(x => exBoard(x) === b.type).length}</em></button>`).join('')}</div>
         <div class="exlist">${EXAMPLES.map((x, i) => exBoard(x) === bt ? `<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>` : '').join('')}</div>`;

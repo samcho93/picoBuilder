@@ -1,6 +1,6 @@
 # 🍓 picoBuilder
 
-**Raspberry Pi Pico**, **BBC micro:bit V2**, **ESP32 DevKitC**용 **노드 기반 MicroPython 코드 빌더**입니다. 브라우저에서 회로를 배선하고, 프로그램을 노드로 연결해 코드를 만들고, 시뮬레이터로 실행한 뒤 실제 보드에 업로드할 수 있습니다.
+**Raspberry Pi Pico**, **Waveshare RP2040-Zero**, **BBC micro:bit V2**, **ESP32 DevKitC**용 **노드 기반 MicroPython 코드 빌더**입니다. 브라우저에서 회로를 배선하고, 프로그램을 노드로 연결해 코드를 만들고, 시뮬레이터로 실행한 뒤 실제 보드에 업로드할 수 있습니다.
 
 **▶ 실행: https://samcho93.github.io/picoBuilder/**
 
@@ -8,8 +8,9 @@
 
 | 기능 | 설명 |
 |---|---|
-| 보드 선택 | 상단에서 Pico, micro:bit, ESP32 중 하나를 고릅니다. 보드를 바꿔도 모듈과 프로그램 노드는 유지되고, 생성 코드(`machine` / `microbit`)와 사용 가능한 노드가 보드에 맞게 바뀝니다. |
+| 보드 선택 | 상단에서 Pico, RP2040-Zero, micro:bit, ESP32 중 하나를 고릅니다. 보드를 바꿔도 모듈과 프로그램 노드는 유지되고, 생성 코드(`machine` / `microbit`)와 사용 가능한 노드가 보드에 맞게 바뀝니다. |
 | Pico 핀맵 노드 | 실제 보드의 물리 핀 배열(왼쪽 1~20, 오른쪽 21~40)을 그대로 사용합니다. GPIO, 3V3, VBUS, VSYS, GND를 포함한 모든 핀을 배선할 수 있고, 핀에 마우스를 올리면 I2C, SPI, UART, ADC, PWM 대체 기능이 표시됩니다. |
+| RP2040-Zero 노드 | Waveshare RP2040-Zero의 핀 배치를 따릅니다: 왼쪽 5V·GND·3V3·GP29~GP26·GP15·GP14, 오른쪽 GP0~GP8, 아래쪽 GP13~GP9, 뒷면 납땜 패드 GND·GP25~GP17. 내장 WS2812 RGB LED(GP16)와 BOOT 버튼(`rp2.bootsel_button()`)을 시뮬레이션하며, Pico에 없는 ADC3(GP29)을 사용할 수 있습니다. 코드는 Pico와 같은 RP2040 MicroPython입니다. |
 | micro:bit 노드 | 엣지 커넥터 25핀을 실제 순서(3, 0, 4, 5, 6, 7, 1, 8 … 3V, 19, 20, GND)대로 아래쪽에 배치했습니다. 5x5 LED 화면, 버튼 A/B, 터치 로고, 가속도·나침반·온도·빛·소리 센서, 스피커를 시뮬레이션합니다. |
 | ESP32 노드 | ESP32-DevKitC V4(38핀)의 양쪽 핀을 실제 순서대로 배치했습니다. BOOT 버튼(GPIO0), 보드 LED(GPIO2), WiFi 상태, 칩 온도를 시뮬레이션합니다. 입력 전용 핀(GPIO34~39), 플래시 핀(GPIO6~11), USB REPL 핀(GPIO1/3), ADC2와 WiFi의 동시 사용 제한을 경고합니다. I2C/SPI/UART는 원하는 핀에 자유롭게 배정할 수 있습니다. |
 | ESP32 전용 노드 | WiFi 연결과 WiFi 상태(IP), 정전식 터치 센서 노드가 있습니다. 시뮬레이터의 WiFi는 가상으로 연결됩니다. |
@@ -87,3 +88,4 @@ js/app.js         앱 통합
 9. Blockly 형태가 아닌 기존에 작업을 해왔던 방식의 노드 기반의 블럭형태여야 함
 10. 라즈베리파이 피코 외에 마이크로비트도 추가
 11. EPS32에서도 마이크로파이썬을 구동할 수 있나? 있으면 ESP32도 추가
+12. https://www.waveshare.com/wiki/RP2040-Zero 위 사이트를 참고해서 RP2040-Zero 도 포함해주고, 예제도 추가해줘.
