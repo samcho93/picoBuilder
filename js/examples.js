@@ -11,6 +11,7 @@ function buildProject(name, fn, board = 'pico') {
     _find: id => nodes.find(n => n.id === id),
     P(p) {
       if (board === 'microbit') return 'mb:' + (typeof p === 'number' ? 'P' + p : p);
+      if (board === 'esp32') return 'esp:' + (typeof p === 'number' ? ESP_GPIO_KEY[p] : { '3V3': 'L1', GND: 'R1', GND2: 'L14', GND3: 'R7', '5V': 'L19' }[p]);
       if (typeof p === 'number') return 'pico:' + p;
       if (/^GP\d+$/.test(p)) return 'pico:' + GPIO_TO_PIN[+p.slice(2)];
       return 'pico:' + { '3V3': 36, VBUS: 40, VSYS: 39, GND: 38 }[p];
@@ -268,6 +269,104 @@ while True:
 
 // 예제에서 노드 입력 기본값을 지정할 때 사용
 function nodeSt(E, id) { return E._find(id).st; }
+
+// ---------------- ESP32 예제 ----------------
+EXAMPLES.push(
+  {
+    group: '📡 ESP32 DevKitC',
+    name: 'Ⓔ① WiFi 연결 + LED 깜빡이기', desc: 'WiFi에 접속한 뒤 보드 LED(GPIO2)를 깜빡임',
+    build: () => buildProject('ESP32 WiFi 블링크', E => {
+      const st = E.node('ev_start', 800, 40);
+      const wf = E.node('esp_wifi', 980, 40);
+      const loop = E.node('ev_loop', 800, 220, { delay: 0 });
+      const t = E.node('onboard_toggle', 980, 220);
+      const w = E.node('wait', 1160, 220);
+      E.flow(st, wf); E.flow(loop, t, w);
+    }, 'esp32'),
+  },
+  {
+    name: 'Ⓔ② DHT22 → LCD1602', desc: 'DHT22(GPIO4) 온습도를 I2C LCD(SDA 21 / SCL 22)에 표시',
+    build: () => buildProject('ESP32 DHT22 LCD', E => {
+      const dht = E.dev('dht22', 790, 300);
+      const lcd = E.dev('lcd', 790, 60);
+      E.hw(dht, { VCC: '3V3', DATA: 4, GND: 'GND' });
+      E.hw(lcd, { GND: 'GND3', VCC: '5V', SDA: 21, SCL: 22 });
+      const loop = E.node('ev_loop', 1080, 40, { delay: 2000 });
+      const p1 = E.node('m_lcd_print', 1260, 40), p2 = E.node('m_lcd_print', 1470, 40);
+      E.flow(loop, p1, p2);
+      E.ref(lcd, p1); E.ref(lcd, p2);
+      Object.assign(nodeSt(E, p2), { row: 1 });
+      const d = E.node('m_dht', 1080, 260);
+      E.ref(dht, d);
+      const j1 = E.node('join', 1260, 250), j2 = E.node('join', 1260, 350);
+      Object.assign(nodeSt(E, j1), { a: 'Temp: ' }); Object.assign(nodeSt(E, j2), { a: 'Humi: ' });
+      E.data(d + '.t', j1 + '.b'); E.data(d + '.h', j2 + '.b');
+      E.data(j1 + '.r', p1 + '.text'); E.data(j2 + '.r', p2 + '.text');
+    }, 'esp32'),
+  },
+  {
+    name: 'Ⓔ③ 가변저항 → 서보', desc: 'ADC1(GPIO34) 가변저항으로 GPIO13 서보 제어',
+    build: () => buildProject('ESP32 서보', E => {
+      const pot = E.dev('pot', 110, 60, { flip: true });
+      const sv = E.dev('servo', 110, 300, { flip: true });
+      E.hw(pot, { VCC: '3V3', GND: 'GND2', OUT: 34 });
+      E.hw(sv, { GND: 'GND2', VCC: '5V', SIG: 13 });
+      const loop = E.node('ev_loop', 800, 40, { delay: 20 });
+      const m = E.node('m_servo', 980, 40);
+      const a = E.node('m_analog', 800, 200);
+      const map = E.node('map', 980, 200);
+      E.flow(loop, m);
+      E.ref(sv, m); E.ref(pot, a);
+      E.data(a + '.value', map + '.x');
+      Object.assign(nodeSt(E, map), { b: 100, d: 180 });
+      E.data(map + '.r', m + '.angle');
+    }, 'esp32'),
+  },
+  {
+    name: 'Ⓔ④ 터치 센서 → 네오픽셀', desc: 'GPIO15 터치(버튼으로 손가락 흉내) 시 WS2812(GPIO5) 빨강',
+    build: () => buildProject('ESP32 터치 네오픽셀', E => {
+      const np = E.dev('neopixel', 790, 330);
+      const btn = E.dev('button', 790, 470, { name: 'finger' });
+      E.hw(np, { DIN: 5, VCC: '5V', GND: 'GND3' });
+      E.hw(btn, { A: 15, B: 'GND3' });
+      const loop = E.node('ev_loop', 1060, 40, { delay: 50 });
+      const iff = E.node('if', 1240, 40);
+      const on = E.node('m_np_fill', 1440, 0), off = E.node('m_np_fill', 1440, 230);
+      E.flow(loop, iff);
+      E.w(iff + ':then', on + ':in'); E.w(iff + ':else', off + ':in');
+      E.ref(np, on); E.ref(np, off);
+      Object.assign(nodeSt(E, on), { r: 255, g: 0, b: 0 }); Object.assign(nodeSt(E, off), { r: 0, g: 0, b: 0 });
+      const t = E.node('esp_touch', 1060, 230, {});
+      Object.assign(nodeSt(E, t), { pin: '15' });
+      E.data(t + '.t', iff + '.cond');
+    }, 'esp32'),
+  },
+  {
+    name: 'Ⓔ⑤ [코드] WiFi 스캔 + 타이머', desc: 'Python 직접 작성: 주변 AP 검색, 하드웨어 타이머로 LED 토글',
+    build: () => buildProject('ESP32 WiFi 스캔 (코드)', () => ({
+      codeMode: 'manual', code: `from machine import Pin, Timer
+import network, esp32, time
+
+led = Pin(2, Pin.OUT)
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+for ssid, bssid, ch, rssi, auth, hidden in wlan.scan():
+    print('AP:', ssid.decode(), 'ch', ch, 'rssi', rssi)
+
+wlan.connect('MyWiFi', 'password')
+while not wlan.isconnected():
+    time.sleep_ms(200)
+print('IP:', wlan.ifconfig()[0])
+
+tim = Timer(0)
+tim.init(period=300, mode=Timer.PERIODIC, callback=lambda t: led.value(not led.value()))
+while True:
+    print('칩 온도(°F):', esp32.raw_temperature())
+    time.sleep(2)
+`,
+    }), 'esp32'),
+  },
+);
 
 // ---------------- micro:bit 예제 ----------------
 EXAMPLES.push(

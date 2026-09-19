@@ -26,7 +26,7 @@ class Sim {
 
   resetGpio() {
     this.gp = {};
-    for (let g = 0; g <= 29; g++) this.gp[g] = { mode: null, val: 0, pull: null, pwm: null, irq: 0 };
+    for (let g = 0; g <= 39; g++) this.gp[g] = { mode: null, val: 0, pull: null, pwm: null, irq: 0 };
   }
 
   // ---------- 실행 제어 ----------
@@ -254,7 +254,7 @@ class Sim {
         if (prev !== undefined && prev !== lv && lv !== null) d.onEdge(n, p.n, lv, ctx);
       }
     }
-    for (let g = 0; g <= 29; g++) {
+    for (let g = 0; g <= 39; g++) {
       const st = this.gp[g];
       const key = 'gpio' + g;
       let lv;
@@ -410,6 +410,11 @@ function makeHwApi(sim) {
     },
     mb_touched(g) { sim.step(); const ni = sim.gpioNet(g); return ni >= 0 && sim.netV(ni) === 0 && sim.nets[ni].terms.length > 1; },
     run_ms: () => performance.now() - (sim.startMs || 0),
+    board_type: () => (sim.board() || { type: 'pico' }).type,
+
+    // ---- ESP32 전용 ----
+    esp_wifi(s) { const b = sim.board(); if (b) b.rt.wifi = String(s); },
+    esp_temp() { const b = sim.board(); return b && b.st.temp != null ? b.st.temp : 45; },
 
     // I2C
     i2c_scan(sda, scl) {

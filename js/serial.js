@@ -18,18 +18,26 @@ class PicoSerial {
 
   async connect() {
     if (!this.supported) throw new Error('이 브라우저는 Web Serial을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.');
-    const port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x2E8A }, { usbVendorId: 0x0D28 }] }).catch(async e => {
+    // Pico(0x2E8A), micro:bit(0x0D28), ESP32 USB-UART: CP210x(0x10C4), CH340(0x1A86), FTDI(0x0403), ESP32-S3 내장(0x303A)
+    const ESP_VIDS = [0x10C4, 0x1A86, 0x0403, 0x303A];
+    const port = await navigator.serial.requestPort({ filters: [0x2E8A, 0x0D28, ...ESP_VIDS].map(v => ({ usbVendorId: v })) }).catch(async e => {
       if (e.name === 'NotFoundError') throw new Error('포트 선택이 취소되었습니다');
       throw e;
     });
     await port.open({ baudRate: 115200 });
+    const vid = (port.getInfo ? port.getInfo() : {}).usbVendorId;
+    if (ESP_VIDS.includes(vid)) {
+      // ESP32 자동 리셋 회로: DTR/RTS를 해제해야 EN/IO0이 풀려 정상 부팅 상태가 됨
+      try { await port.setSignals({ dataTerminalReady: false, requestToSend: false }); } catch (e) { }
+      await new Promise(r => setTimeout(r, 200));
+    }
     this.port = port;
     this.writer = port.writable.getWriter();
     this.readLoop();
     navigator.serial.addEventListener('disconnect', this._onDisc = e => { if (e.target === this.port) this.cleanup('보드 연결이 끊어졌습니다'); });
     const info = port.getInfo ? port.getInfo() : {};
-    this.boardHint = info.usbVendorId === 0x0D28 ? 'microbit' : info.usbVendorId === 0x2E8A ? 'pico' : null;
-    this.app.serialLog(`\n[${this.boardHint === 'microbit' ? 'micro:bit' : 'Pico'} 연결됨]\n`, 'info');
+    this.boardHint = info.usbVendorId === 0x0D28 ? 'microbit' : info.usbVendorId === 0x2E8A ? 'pico' : ESP_VIDS.includes(info.usbVendorId) ? 'esp32' : null;
+    this.app.serialLog(`\n[${this.boardHint ? BOARDS[this.boardHint].short : '보드'} 연결됨]\n`, 'info');
     this.app.onSerialState(true);
   }
 
@@ -140,9 +148,8 @@ class PicoSerial {
   async checkBoard(board, progress) {
     const ver = (await this.exec('import sys\nprint(sys.implementation.name, sys.version, sys.platform)')).trim();
     progress('보드: ' + ver);
-    const isMb = /microbit|nrf/i.test(ver);
-    if (board === 'microbit' && !isMb) progress('⚠ 프로젝트는 micro:bit용인데 연결된 보드는 micro:bit가 아닌 것 같습니다');
-    if (board === 'pico' && isMb) progress('⚠ 프로젝트는 Pico용인데 연결된 보드는 micro:bit입니다');
+    const actual = /microbit|nrf/i.test(ver) ? 'microbit' : /esp32/i.test(ver) ? 'esp32' : /rp2/i.test(ver) ? 'pico' : null;
+    if (actual && actual !== board) progress(`⚠ 프로젝트는 ${BOARDS[board].short}용인데 연결된 보드는 ${BOARDS[actual].short}입니다`);
   }
 
   async guard(fn) {

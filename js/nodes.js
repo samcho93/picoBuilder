@@ -16,6 +16,7 @@ const PROG_CATS = [
   ['m_disp', '모듈: 디스플레이', '#c678dd'],
   ['m_comm', '모듈: 통신/시계', '#56b6c2'],
   ['mb', 'micro:bit 전용', '#2c7be5'],
+  ['esp', 'ESP32 전용', '#c0392b'],
 ];
 
 const TYPE_COLORS = { number: '#98c379', bool: '#e06c75', string: '#e5a0ff', any: '#9aa4b2' };
@@ -207,17 +208,18 @@ def('adc_read', {
   },
 });
 def('onboard_led', {
-  label: '보드 LED', cat: 'gpio', boards: ['pico'], desc: 'Pico 보드의 내장 LED (GP25)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
-  stmt(n, G) { G.setup('led_onboard', "led_onboard = Pin('LED', Pin.OUT)"); return [`led_onboard.value(${G.expr(n, 'value')})`]; },
+  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) { G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [`led_onboard.value(${G.expr(n, 'value')})`]; },
 });
 def('onboard_toggle', {
-  label: '보드 LED 토글', cat: 'gpio', boards: ['pico'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
-  stmt(n, G) { G.setup('led_onboard', "led_onboard = Pin('LED', Pin.OUT)"); return ['led_onboard.toggle()']; },
+  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
+  stmt(n, G) { G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [G.B.toggle(G, 'led_onboard')]; },
 });
 def('cpu_temp', {
   label: '내부 온도센서', cat: 'gpio', desc: '보드 내장 온도(°C) — Pico: ADC4 / micro:bit: temperature()', ins: [], outs: [OUT('t', 'number', '°C')],
   expr(n, G) {
     if (!G.B.pico) return 'temperature()';
+    if (G.B.esp) { G.imp('import esp32'); return 'round((esp32.raw_temperature() - 32) / 1.8, 1)'; }
     G.setup('adc_temp', 'adc_temp = ADC(4)');
     G.helper('cpu_temp', 'def cpu_temp():\n    v = adc_temp.read_u16() * 3.3 / 65535\n    return round(27 - (v - 0.706) / 0.001721, 1)');
     return 'cpu_temp()';
@@ -313,7 +315,7 @@ def('m_pir', {
   expr(n, G) { const d = G.dev(n); return d ? `${G.B.read(d.name)} == 1` : 'False'; },
 });
 def('m_dht', {
-  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
+  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
   expr(n, G, port) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('dht', "_dht_cache = {}\ndef dht_read(d):\n    now = time.ticks_ms()\n    c = _dht_cache.get(id(d))\n    if c is None or time.ticks_diff(now, c[0]) > 2000:\n        try:\n            d.measure()\n            c = (now, d.temperature(), d.humidity())\n        except OSError:\n            c = (now, c[1], c[2]) if c else (now, 0, 0)\n        _dht_cache[id(d)] = c\n    return c");
@@ -321,7 +323,7 @@ def('m_dht', {
   },
 });
 def('m_ds18', {
-  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
+  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
   expr(n, G) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('ds18', 'def ds_temp(d, roms):\n    if not roms:\n        return None\n    d.convert_temp()\n    time.sleep_ms(750)\n    return round(d.read_temp(roms[0]), 2)');
@@ -503,6 +505,33 @@ def('mb_melody', {
   stmt(n, G) { G.imp('import music'); return [`music.play(music.${n.st.m || 'BA_DING'}, wait=${n.st.wait === 'False' ? 'False' : 'True'})`]; },
 });
 
+// ================= ESP32 전용 =================
+const ESP = ['esp32'];
+def('esp_wifi', {
+  label: 'WiFi 연결', cat: 'esp', boards: ESP, desc: '공유기(AP)에 접속합니다 (network.WLAN). 시뮬레이터에서는 가상으로 연결됩니다.',
+  ins: [X(), D('ssid', 'string', 'MyWiFi', 'SSID'), D('pw', 'string', 'password', '비밀번호')], outs: [X('out')],
+  stmt(n, G) {
+    G.imp('import network');
+    G.helper('wifi', "def wifi_connect(ssid, password, timeout_ms=10000):\n    wlan = network.WLAN(network.STA_IF)\n    wlan.active(True)\n    if not wlan.isconnected():\n        wlan.connect(ssid, password)\n        t0 = time.ticks_ms()\n        while not wlan.isconnected() and time.ticks_diff(time.ticks_ms(), t0) < timeout_ms:\n            time.sleep_ms(100)\n    print('WiFi', 'connected' if wlan.isconnected() else 'failed', wlan.ifconfig()[0])\n    return wlan.isconnected()");
+    return [`wifi_connect(${G.expr(n, 'ssid')}, ${G.expr(n, 'pw')})`];
+  },
+});
+def('esp_wifi_info', {
+  label: 'WiFi 상태', cat: 'esp', boards: ESP, desc: '연결 여부와 IP 주소', ins: [], outs: [OUT('ok', 'bool', '연결됨'), OUT('ip', 'string', 'IP')],
+  expr(n, G, port) { G.imp('import network'); return port === 'ok' ? 'network.WLAN(network.STA_IF).isconnected()' : 'network.WLAN(network.STA_IF).ifconfig()[0]'; },
+});
+def('esp_touch', {
+  label: '터치 센서', cat: 'esp', boards: ESP, desc: '정전식 터치 값 (터치하면 값이 작아짐, TouchPad)', ins: [PIN()], outs: [OUT('v', 'number', '값'), OUT('t', 'bool', '터치됨')],
+  expr(n, G, port) {
+    const g = G.pin(n);
+    if (g == null) return '0';
+    if (!ESP_TOUCH.includes(g)) { G.warn(n, `GPIO${g}는 터치 핀이 아닙니다 (${ESP_TOUCH.join(', ')})`); return '0'; }
+    G.imp('from machine import TouchPad');
+    G.setup('touch' + g, `touch${g} = TouchPad(Pin(${g}))`);
+    return port === 't' ? `touch${g}.read() < 300` : `touch${g}.read()`;
+  },
+});
+
 function analogExpr(G, raw, unit) {
   const mx = G.B.adcMax;
   return unit === 'pct' ? `round(${raw} * 100 / ${mx})` : unit === 'volt' ? `round(${raw} * 3.3 / ${mx}, 2)` : raw;
@@ -582,6 +611,24 @@ const DIALECTS = {
   },
 };
 
+// ESP32: machine 모듈(Pico와 동일 API) + 버스 핀 자유 배정, ADC 감쇠, 입력 전용 핀
+DIALECTS.esp32 = {
+  ...DIALECTS.pico,
+  esp: true,
+  ledPin: 2,
+  out(g) { if (g >= 34) this.warnPin(g, `GPIO${g}는 입력 전용 핀이라 출력으로 쓸 수 없습니다`); return `Pin(${g}, Pin.OUT)`; },
+  inp(name, g, pull, cm) {
+    if (g >= 34 && pull && pull !== 'NONE') { this.warnPin(g, `GPIO${g}에는 내부 풀업/풀다운이 없습니다 (외부 저항 필요)`); pull = 'NONE'; }
+    return DIALECTS.pico.inp(name, g, pull, cm);
+  },
+  adc: g => `ADC(Pin(${g}), atten=ADC.ATTN_11DB)`,
+  adcOk: g => ESP_ADC.includes(g),
+  adcHint: g => `GPIO${g}는 ADC를 지원하지 않습니다 (ADC1: GPIO32~39 권장, ADC2는 WiFi 사용 중 동작 안 함)`,
+  pwm(g) { if (g >= 34) this.warnPin(g, `GPIO${g}는 입력 전용이라 PWM 출력이 안 됩니다`); return `PWM(Pin(${g}))`; },
+  toggle: (G, v) => `${v}.value(not ${v}.value())`,
+};
+DIALECTS.pico.ledPin = "'LED'";
+
 // ================= 코드 생성기 =================
 function generateCode(graph, sim) {
   sim.invalidate();
@@ -589,7 +636,8 @@ function generateCode(graph, sim) {
   const byId = new Map(graph.nodes.map(n => [n.id, n]));
   const boardNode = graph.nodes.find(n => BOARDS[n.type]);
   const btype = boardNode ? boardNode.type : 'pico';
-  const B = DIALECTS[btype];
+  const B = Object.create(DIALECTS[btype]);
+  B.warnPin = (g, msg) => warn(null, msg);
   const bdef = BOARDS[btype];
   const into = new Map(), from = new Map();
   for (const w of graph.wires) {
@@ -643,6 +691,11 @@ function generateCode(graph, sim) {
           C.lib('mbcompat', 'from mbcompat import MbI2C');
           name = 'i2c_ext';
           busLines.push(`${name} = MbI2C(sda=pin${sda}, scl=pin${scl})`);
+        } else if (B.esp) {
+          const used = [...buses.values()].filter(v => /^i2c\d$/.test(v)).length;
+          if (used < 2) { name = 'i2c' + used; busLines.push(`${name} = I2C(${used}, scl=Pin(${scl}), sda=Pin(${sda}), freq=400000)`); }
+          else { name = `i2c_gp${sda}_${scl}`; busLines.push(`${name} = SoftI2C(scl=Pin(${scl}), sda=Pin(${sda}), freq=100000)`); }
+          if (sda >= 34 || scl >= 34) C.warn('GPIO34~39는 입력 전용이라 I2C에 쓸 수 없습니다');
         } else {
           const hw = HW.i2cBus(sda, scl);
           if (hw != null && ![...buses.values()].includes('i2c' + hw)) {
@@ -668,6 +721,13 @@ function generateCode(graph, sim) {
           C.lib('mbcompat', 'from mbcompat import MbSPI');
           name = 'spi_ext';
           busLines.push(`${name} = MbSPI(sck=pin${sck}, mosi=pin${mosi}, miso=pin${miso != null ? miso : 14})`);
+        } else if (B.esp) {
+          const used = [...buses.values()].filter(v => /^spi\d$/.test(v)).length;
+          const misoArg = miso != null ? `, miso=Pin(${miso})` : '';
+          if (used >= 2) { C.warn('ESP32 하드웨어 SPI는 2개(VSPI/HSPI)까지입니다'); return null; }
+          const id = used === 0 ? 2 : 1;
+          name = 'spi' + id;
+          busLines.push(`${name} = SPI(${id}, baudrate=1000000, sck=Pin(${sck}), mosi=Pin(${mosi})${misoArg})  # ${id === 2 ? 'VSPI' : 'HSPI'}`);
         } else {
           const hw = HW.spiBus(sck, mosi, miso);
           const misoArg = miso != null ? `, miso=Pin(${miso})` : '';
@@ -694,8 +754,16 @@ function generateCode(graph, sim) {
           C.warn('micro:bit에서 uart.init()을 하면 USB 시리얼(print/REPL)이 해당 핀으로 넘어갑니다');
           return 'uart';
         }
-        const bus = HW.uartBus(tx, rx);
-        if (bus == null) { C.warn(`GP${tx ?? '-'}/GP${rx ?? '-'} 는 UART TX/RX 핀 조합이 아닙니다 (예: GP0=TX0, GP1=RX0 / GP4=TX1, GP5=RX1)`); return null; }
+        let bus;
+        if (B.esp) {
+          if (tx != null && tx >= 34) C.warn(`GPIO${tx}는 입력 전용이라 TX로 쓸 수 없습니다`);
+          const used = [...buses.keys()].filter(k => /^uart\d$/.test(k)).length;
+          if (used >= 2) { C.warn('ESP32에서 사용할 수 있는 UART는 UART1, UART2 두 개입니다'); return null; }
+          bus = used === 0 ? 2 : 1;
+        } else {
+          bus = HW.uartBus(tx, rx);
+          if (bus == null) { C.warn(`GP${tx ?? '-'}/GP${rx ?? '-'} 는 UART TX/RX 핀 조합이 아닙니다 (예: GP0=TX0, GP1=RX0 / GP4=TX1, GP5=RX1)`); return null; }
+        }
         const name = 'uart' + bus;
         if (!buses.has(name)) {
           buses.set(name, name);
@@ -705,6 +773,7 @@ function generateCode(graph, sim) {
         return name;
       },
     };
+    B.warnPin = (g, msg) => warn(n, msg);
     try {
       const lines = d.setup ? d.setup(n, C) : [];
       if (lines && lines.length) setup.push(...lines);
@@ -780,8 +849,9 @@ function generateCode(graph, sim) {
       const used = [...pinVars.keys()].some(k => k.startsWith(g + ':'));
       const name = used ? `gp${g}_${mode}` : `gp${g}`;
       pinVars.set(key, name);
-      const pl = pull && pull !== 'NONE' ? `, Pin.${pull}` : '';
-      setup.push(mode === 'out' ? `${name} = Pin(${g}, Pin.OUT)` : mode === 'in' ? `${name} = Pin(${g}, Pin.IN${pl})` : mode === 'pwm' ? `${name} = PWM(Pin(${g}))` : `${name} = ADC(Pin(${g}))`);
+      B.warnPin = (gg, msg) => warn(n, msg);
+      if (mode === 'in') setup.push(...B.inp(name, g, pull));
+      else setup.push(`${name} = ${mode === 'out' ? B.out(g) : mode === 'pwm' ? B.pwm(g) : B.adc(g)}`);
       return name;
     },
     chain(n, port) {
@@ -817,7 +887,9 @@ function generateCode(graph, sim) {
   for (const n of evs('ev_timer')) {
     const period = Math.max(1, parseInt(n.st.period) || 1000);
     const body = G.chain(n, 'out');
-    if (B.pico) handlers.push({ head: `def on_timer_${n.id}(t):`, body, after: [`timer_${n.id} = Timer(period=${period}, mode=Timer.PERIODIC, callback=on_timer_${n.id})`] });
+    const tid = B.esp ? `${handlers.filter(h => h.timer).length}, ` : '';
+    if (B.esp && tid === '4, ') warn(n, 'ESP32 하드웨어 타이머는 4개(0~3)까지입니다');
+    if (B.pico) handlers.push({ timer: true, head: `def on_timer_${n.id}(t):`, body, after: [`timer_${n.id} = Timer(${tid}period=${period}, mode=Timer.PERIODIC, callback=on_timer_${n.id})`] });
     else handlers.push({ pre: [`_t_${n.id} = running_time()`], head: `def on_timer_${n.id}():`, body, poll: [`if running_time() - _t_${n.id} >= ${period}:`, `    _t_${n.id} = running_time()`, `    on_timer_${n.id}()`] });
   }
   for (const n of evs('ev_pin')) {
@@ -885,6 +957,14 @@ function generateCode(graph, sim) {
     handlerLines.push(...(h.pre || []), h.head, ...(gl.length ? [`    global ${gl.join(', ')}`] : []), ...(h.guard || []), ...ind(h.body), '');
   }
   const afters = handlers.flatMap(h => h.after || []);
+
+  if (B.esp) {
+    for (const g of [1, 3]) if (usedPins.has(g)) warn(usedPins.get(g), `GPIO${g}는 USB REPL(UART0)과 공유됩니다 (UART는 TX=17, RX=16 등 다른 핀 권장)`);
+    if (usedPins.has(12)) warn(usedPins.get(12), 'GPIO12는 스트래핑 핀입니다 (부팅 시 HIGH면 부팅 실패 가능)');
+    const wifi = graph.nodes.some(n => n.type === 'esp_wifi');
+    const adc2 = [...usedPins.keys()].filter(g => [0, 2, 4, 12, 13, 14, 15, 25, 26, 27].includes(g));
+    if (wifi && adc2.length && [...setup, ...busLines].some(l => /ADC\(Pin\((0|2|4|12|13|14|15|25|26|27)\)/.test(l))) warn(null, 'WiFi 사용 중에는 ADC2 핀(GPIO0,2,4,12~15,25~27)의 아날로그 입력이 동작하지 않습니다. GPIO32~39를 사용하세요');
+  }
 
   // micro:bit LED 화면 공유 핀
   if (!B.pico) {

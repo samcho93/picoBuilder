@@ -27,7 +27,7 @@ class Runtime {
       py.setStdout({ batched: s => this.app.log(s) });
       py.setStderr({ batched: s => this.app.log(s, 'err') });
       py.setStdin({ stdin: () => { const r = window.prompt('input() 입력:'); return r == null ? '' : r + '\n'; } });
-      for (const [dir, mods] of [['/pblib', { ...PY_SIM, ...PY_DRIVERS }], ['/pbpico', PY_PICO], ['/pbmb', PY_MB]]) {
+      for (const [dir, mods] of [['/pblib', { ...PY_SIM, ...PY_DRIVERS }], ['/pbpico', PY_PICO], ['/pbmb', PY_MB], ['/pbesp', PY_ESP]]) {
         py.FS.mkdirTree(dir);
         for (const [name, src] of Object.entries(mods)) py.FS.writeFile(`${dir}/${name}.py`, src);
       }

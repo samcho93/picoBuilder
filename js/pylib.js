@@ -740,10 +740,10 @@ def _purge():
 
 async def run(src, board='pico'):
     _purge()
-    for p in ('/pbpico', '/pbmb'):
+    for p in ('/pbpico', '/pbmb', '/pbesp'):
         while p in sys.path:
             sys.path.remove(p)
-    sys.path.insert(0, '/pbmb' if board == 'microbit' else '/pbpico')
+    sys.path.insert(0, {'microbit': '/pbmb', 'esp32': '/pbesp'}.get(board, '/pbpico'))
     if board == 'microbit':
         import microbit  # noqa: 화면 초기화
     else:
@@ -853,6 +853,9 @@ PY_SIM.machine = String.raw`# machine 모듈 에뮬레이션 (Raspberry Pi Pico 
 import pbhw, time, _pbrt
 from pyodide.ffi import create_proxy
 
+_ESP = pbhw.board_type() == 'esp32'
+_ESP_GPIO = set(range(40)) - {20, 24, 28, 29, 30, 31}
+_ESP_ADC = (32, 33, 34, 35, 36, 39, 0, 2, 4, 12, 13, 14, 15, 25, 26, 27)
 _irq = {}
 _timers = {}
 
@@ -879,13 +882,15 @@ def _gid(p):
     if isinstance(p, Pin):
         return p._id
     if isinstance(p, str):
-        if p in ('LED', 'WL_GPIO0', 'GP25', 'GPIO25'):
+        if p == 'LED':
+            return 2 if _ESP else 25
+        if not _ESP and p in ('WL_GPIO0', 'GP25', 'GPIO25'):
             return 25
         s = p.upper().replace('GPIO', '').replace('GP', '')
-        if s.isdigit() and 0 <= int(s) <= 29:
+        if s.isdigit() and (int(s) in _ESP_GPIO if _ESP else 0 <= int(s) <= 29):
             return int(s)
         raise ValueError('unknown named pin "%s"' % p)
-    if isinstance(p, int) and 0 <= p <= 29:
+    if isinstance(p, int) and (p in _ESP_GPIO if _ESP else 0 <= p <= 29):
         return p
     raise ValueError('invalid pin')
 
@@ -913,6 +918,10 @@ class Pin:
     def init(self, mode=-1, pull=-1, *args, value=None, **kw):
         if mode is None:
             mode = -1
+        if _ESP and self._id >= 34:
+            if mode in (1, 2):
+                raise ValueError('pin can only be input')
+            pull = 0 if pull not in (-1, None) else pull
         if mode != -1:
             self._mode = mode
             if pull == -1:
@@ -1010,8 +1019,25 @@ class PWM:
 
 class ADC:
     CORE_TEMP = 4
+    ATTN_0DB = 0
+    ATTN_2_5DB = 1
+    ATTN_6DB = 2
+    ATTN_11DB = 3
+    WIDTH_9BIT = 9
+    WIDTH_10BIT = 10
+    WIDTH_11BIT = 11
+    WIDTH_12BIT = 12
+    _FS = (1.0, 1.34, 2.0, 3.3)
 
-    def __init__(self, pin, *a, **k):
+    def __init__(self, pin, *a, atten=None, **k):
+        self._esp = _ESP
+        if _ESP:
+            g = _gid(pin)
+            if g not in _ESP_ADC:
+                raise ValueError('invalid Pin for ADC')
+            self._g = g
+            self._atten = 0 if atten is None else atten
+            return
         if isinstance(pin, int) and 0 <= pin <= 4:
             self._ch = pin
         else:
@@ -1020,8 +1046,53 @@ class ADC:
                 raise ValueError("Pin doesn't have ADC capabilities")
             self._ch = g - 26
 
+    def atten(self, a):
+        self._atten = a
+
+    def width(self, w):
+        pass
+
+    def init(self, atten=None, **k):
+        if atten is not None:
+            self._atten = atten
+
+    def _volts(self):
+        v = int(pbhw.adc_pin(self._g)) * 3.3 / 65535
+        return min(v, self._FS[self._atten])
+
     def read_u16(self):
-        return int(pbhw.adc_read(self._ch))
+        if not self._esp:
+            return int(pbhw.adc_read(self._ch))
+        return int(self._volts() / self._FS[self._atten] * 65535)
+
+    def read(self):
+        return self.read_u16() >> 4
+
+    def read_uv(self):
+        return int(self._volts() * 1000000)
+
+
+class TouchPad:
+    def __init__(self, pin):
+        self._g = _gid(pin)
+        if self._g not in (0, 2, 4, 12, 13, 14, 15, 27, 32, 33):
+            raise ValueError('Touch pad error')
+
+    def read(self):
+        return 90 if pbhw.mb_touched(self._g) else 620
+
+    def config(self, v):
+        pass
+
+
+class DAC:
+    def __init__(self, pin, *a):
+        self._g = _gid(pin)
+        if self._g not in (25, 26):
+            raise ValueError('invalid Pin for DAC')
+
+    def write(self, v):
+        pbhw.pwm_set(self._g, 100000, int(max(0, min(255, v)) * 257))
 
 
 _I2C_DEF = {0: (9, 8), 1: (7, 6)}
@@ -1029,7 +1100,13 @@ _I2C_DEF = {0: (9, 8), 1: (7, 6)}
 
 class I2C:
     def __init__(self, id=-1, *, scl=None, sda=None, freq=400000, timeout=50000, _soft=False):
-        if not _soft:
+        if _ESP and not _soft:
+            if id not in (0, 1):
+                raise ValueError("I2C(%s) doesn't exist" % id)
+            dscl, dsda = ((18, 19), (25, 26))[id]
+            self._scl = _gid(scl) if scl is not None else dscl
+            self._sda = _gid(sda) if sda is not None else dsda
+        elif not _soft:
             if id not in (0, 1):
                 raise ValueError('I2C(%s) doesn\'t exist' % id)
             dscl, dsda = _I2C_DEF[id]
@@ -1101,7 +1178,14 @@ class SPI:
     CONTROLLER = 0
 
     def __init__(self, id=0, baudrate=1000000, *, polarity=0, phase=0, bits=8, firstbit=0, sck=None, mosi=None, miso=None, _soft=False):
-        if not _soft:
+        if _ESP and not _soft:
+            if id not in (1, 2):
+                raise ValueError("SPI(%s) doesn't exist" % id)
+            d = {1: (14, 13, 12), 2: (18, 23, 19)}[id]
+            self._sck = _gid(sck) if sck is not None else d[0]
+            self._mosi = _gid(mosi) if mosi is not None else d[1]
+            self._miso = _gid(miso) if miso is not None else d[2]
+        elif not _soft:
             if id not in (0, 1):
                 raise ValueError("SPI(%s) doesn't exist" % id)
             d = _SPI_DEF[id]
@@ -1156,17 +1240,24 @@ _UART_DEF = {0: (0, 1), 1: (4, 5)}
 
 class UART:
     def __init__(self, id, baudrate=115200, bits=8, parity=None, stop=1, *, tx=None, rx=None, timeout=0, **kw):
-        if id not in (0, 1):
-            raise ValueError("UART(%s) doesn't exist" % id)
-        d = _UART_DEF[id]
-        self._tx = _gid(tx) if tx is not None else d[0]
-        self._rx = _gid(rx) if rx is not None else d[1]
-        role = lambda n: ('TX', 'RX', 'CTS', 'RTS')[n % 4]
-        bus = lambda n: ((n + 4) >> 3) & 1
-        if role(self._tx) != 'TX' or bus(self._tx) != id:
-            raise ValueError('bad TX pin')
-        if role(self._rx) != 'RX' or bus(self._rx) != id:
-            raise ValueError('bad RX pin')
+        if _ESP:
+            if id not in (0, 1, 2):
+                raise ValueError("UART(%s) doesn't exist" % id)
+            d = ((1, 3), (10, 9), (17, 16))[id]
+            self._tx = _gid(tx) if tx is not None else d[0]
+            self._rx = _gid(rx) if rx is not None else d[1]
+        else:
+            if id not in (0, 1):
+                raise ValueError("UART(%s) doesn't exist" % id)
+            d = _UART_DEF[id]
+            self._tx = _gid(tx) if tx is not None else d[0]
+            self._rx = _gid(rx) if rx is not None else d[1]
+            role = lambda n: ('TX', 'RX', 'CTS', 'RTS')[n % 4]
+            bus = lambda n: ((n + 4) >> 3) & 1
+            if role(self._tx) != 'TX' or bus(self._tx) != id:
+                raise ValueError('bad TX pin')
+            if role(self._rx) != 'RX' or bus(self._rx) != id:
+                raise ValueError('bad RX pin')
         self._baud = baudrate
         self._id = id
         self._buf = bytearray()
@@ -1673,6 +1764,120 @@ def asm_pio(*a, **k):
 
 PY_SIM.framebuf = PY_SIM.framebuf.replace('__FONT__', "b'" + FONT5x7.map(b => '\\x' + b.toString(16).padStart(2, '0')).join('') + "'");
 
-// 보드별 모듈 분리: 공통(/pblib), Pico 전용(/pbpico)
+// 보드별 모듈 분리: 공통(/pblib), Pico 전용(/pbpico), ESP32 전용(/pbesp)
 const PY_PICO = {};
 for (const k of ['machine', 'dht', 'onewire', 'ds18x20', '_thread', 'rp2']) { PY_PICO[k] = PY_SIM[k]; delete PY_SIM[k]; }
+
+const PY_ESP = { machine: PY_PICO.machine, dht: PY_PICO.dht, onewire: PY_PICO.onewire, ds18x20: PY_PICO.ds18x20, _thread: PY_PICO._thread };
+PY_ESP.network = String.raw`# network 모듈 (시뮬레이터: 가상 WiFi)
+import pbhw
+
+STA_IF = 0
+AP_IF = 1
+STAT_IDLE = 1000
+STAT_CONNECTING = 1001
+STAT_GOT_IP = 1010
+_st = {'active': False, 't0': None, 'ssid': None}
+
+
+class WLAN:
+    def __init__(self, interface_id=STA_IF):
+        self._if = interface_id
+
+    def active(self, v=None):
+        if v is None:
+            return _st['active']
+        _st['active'] = bool(v)
+        if not v:
+            _st['t0'] = None
+            pbhw.esp_wifi('')
+
+    def connect(self, ssid=None, key=None, **kw):
+        if not _st['active']:
+            raise OSError('Wifi Internal Error')
+        _st['ssid'] = ssid
+        _st['t0'] = pbhw.now_ms()
+        pbhw.esp_wifi('connecting')
+
+    def disconnect(self):
+        _st['t0'] = None
+        pbhw.esp_wifi('')
+
+    def isconnected(self):
+        if self._if == AP_IF:
+            return _st['active']
+        ok = _st['t0'] is not None and pbhw.now_ms() - _st['t0'] > 1500
+        if ok:
+            pbhw.esp_wifi('connected')
+        return ok
+
+    def status(self, *a):
+        if a:
+            return -60 if a[0] == 'rssi' else None
+        if self.isconnected():
+            return STAT_GOT_IP
+        return STAT_CONNECTING if _st['t0'] is not None else STAT_IDLE
+
+    def ifconfig(self, *a):
+        if self._if == AP_IF:
+            return ('192.168.4.1', '255.255.255.0', '192.168.4.1', '8.8.8.8')
+        if self.isconnected():
+            return ('192.168.0.57', '255.255.255.0', '192.168.0.1', '8.8.8.8')
+        return ('0.0.0.0', '0.0.0.0', '0.0.0.0', '0.0.0.0')
+
+    def scan(self):
+        return [(b'MyWiFi', b'\x12\x34\x56\x78\x9a\xbc', 6, -48, 3, False), (b'Guest', b'\x22\x34\x56\x78\x9a\xbd', 11, -71, 0, False)]
+
+    def config(self, *a, **k):
+        if a and a[0] == 'mac':
+            return b'\x24\x0a\xc4\x12\x34\x56'
+        if a and a[0] in ('ssid', 'essid'):
+            return _st['ssid'] or ''
+        return None
+`;
+PY_ESP.esp32 = String.raw`# esp32 모듈 (일부)
+import pbhw
+
+
+def raw_temperature():
+    return int(pbhw.esp_temp() * 1.8 + 32)
+
+
+def mcu_temperature():
+    return int(pbhw.esp_temp())
+
+
+def hall_sensor():
+    return 0
+
+
+def wake_on_ext0(*a, **k):
+    pass
+
+
+def wake_on_touch(*a):
+    pass
+
+
+class NVS:
+    _d = {}
+
+    def __init__(self, ns):
+        self._ns = ns
+
+    def set_i32(self, k, v):
+        NVS._d[(self._ns, k)] = v
+
+    def get_i32(self, k):
+        return NVS._d[(self._ns, k)]
+
+    def commit(self):
+        pass
+`;
+PY_ESP.esp = String.raw`def osdebug(*a):
+    pass
+
+
+def flash_size():
+    return 4194304
+`;

@@ -343,7 +343,7 @@ class App {
         if (!conn.length) return '';
         return `<tr><td>${n.type === 'pico' ? p.num : ''}</td><td><b>${p.name}</b></td><td>${conn.map(x => `<span class="tag">${esc(this.termLabel(x))}</span>`).join('')}</td></tr>`;
       }).join('');
-      el.innerHTML = `<h3><span class="sw" style="background:${n.type === 'pico' ? '#1b7f3b' : '#2c7be5'}"></span>${bd.icon} ${bd.label}</h3>
+      el.innerHTML = `<h3><span class="sw" style="background:${{ pico: '#1b7f3b', microbit: '#2c7be5', esp32: '#c0392b' }[n.type]}"></span>${bd.icon} ${bd.label}</h3>
         <p class="desc">${esc(bd.desc)}</p>
         <table><tr><th>핀</th><th>이름</th><th>연결</th></tr>${rows || '<tr><td colspan=3>연결된 핀이 없습니다</td></tr>'}</table>`;
       return;

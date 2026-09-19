@@ -56,17 +56,7 @@ const BOARDS = {
           <div class="prows">${rows.join('')}</div>
         </div>`;
     },
-    render(n, sim) {
-      if (!n._lbl || !n._lbl[0] || !n._lbl[0].isConnected) n._lbl = [...n.el.querySelectorAll('.plbl[data-g]')].filter(x => x.dataset.g !== '');
-      for (const l of n._lbl) {
-        const st = sim.gp[+l.dataset.g];
-        const cls = !sim.running || !st.mode ? '' : st.pwm ? 'pwm' : st.mode === 'out' ? (st.val ? 'hi' : 'lo') : 'in';
-        if (l._c !== cls) { l.classList.remove('hi', 'lo', 'pwm', 'in'); if (cls) l.classList.add(cls); l._c = cls; }
-      }
-      const led = n._led && n._led.isConnected ? n._led : (n._led = n.el.querySelector('.obled'));
-      const on = sim.gp[25].mode === 'out' && sim.gp[25].val === 1;
-      if (led && led._on !== on) { led.classList.toggle('on', on); led._on = on; }
-    },
+    render(n, sim) { renderBoardPins(n, sim, 25); },
   },
 
   microbit: {
@@ -151,6 +141,103 @@ const BOARDS = {
     },
     stop(n) { Sound.set('mb-speaker', 0, false); n.rt.display = ''; n.rt.tone = 0; },
   },
+};
+
+// 양쪽 핀 라벨에 GPIO 상태(HIGH/LOW/PWM/입력) 표시 + 보드 LED
+function renderBoardPins(n, sim, ledGpio) {
+  if (!n._lbl || !n._lbl[0] || !n._lbl[0].isConnected) n._lbl = [...n.el.querySelectorAll('.plbl[data-g]')].filter(x => x.dataset.g !== '');
+  for (const l of n._lbl) {
+    const st = sim.gp[+l.dataset.g];
+    const cls = !sim.running || !st.mode ? '' : st.pwm ? 'pwm' : st.mode === 'out' ? (st.val ? 'hi' : 'lo') : 'in';
+    if (l._c !== cls) { l.classList.remove('hi', 'lo', 'pwm', 'in'); if (cls) l.classList.add(cls); l._c = cls; }
+  }
+  const led = n._led && n._led.isConnected ? n._led : (n._led = n.el.querySelector('.obled'));
+  const st = sim.gp[ledGpio];
+  const on = st.mode === 'out' && (st.pwm ? st.pwm.duty > 0 : st.val === 1);
+  if (led && led._on !== on) { led.classList.toggle('on', on); led._on = on; }
+}
+
+// ---------- ESP32-DevKitC V4 (38핀, USB 아래쪽 기준 위→아래) ----------
+const ESP_LEFT = [['3V3', 'power'], ['EN', 'ctrl'], ['VP', 36], ['VN', 39], ['IO34', 34], ['IO35', 35], ['IO32', 32], ['IO33', 33], ['IO25', 25], ['IO26', 26],
+  ['IO27', 27], ['IO14', 14], ['IO12', 12], ['GND', 'gnd'], ['IO13', 13], ['SD2', 'flash'], ['SD3', 'flash'], ['CMD', 'flash'], ['5V', 'power5']];
+const ESP_RIGHT = [['GND', 'gnd'], ['IO23', 23], ['IO22', 22], ['TX0', 1], ['RX0', 3], ['IO21', 21], ['GND', 'gnd'], ['IO19', 19], ['IO18', 18], ['IO5', 5],
+  ['IO17', 17], ['IO16', 16], ['IO4', 4], ['IO0', 0], ['IO2', 2], ['IO15', 15], ['SD1', 'flash'], ['SD0', 'flash'], ['CLK', 'flash']];
+const ESP_FUNCS = {
+  0: ['ADC2_1', 'TOUCH1', '스트래핑(BOOT 버튼)'], 1: ['UART0 TX (USB REPL)'], 2: ['ADC2_2', 'TOUCH2', '스트래핑', '보드 LED(일반적)'], 3: ['UART0 RX (USB REPL)'],
+  4: ['ADC2_0', 'TOUCH0'], 5: ['VSPI CS', '스트래핑'], 12: ['ADC2_5', 'TOUCH5', 'HSPI MISO', '스트래핑(부팅 시 LOW)'], 13: ['ADC2_4', 'TOUCH4', 'HSPI MOSI'],
+  14: ['ADC2_6', 'TOUCH6', 'HSPI SCK'], 15: ['ADC2_3', 'TOUCH3', 'HSPI CS', '스트래핑'], 16: ['UART2 RX'], 17: ['UART2 TX'], 18: ['VSPI SCK'], 19: ['VSPI MISO'],
+  21: ['I2C SDA(관례)'], 22: ['I2C SCL(관례)'], 23: ['VSPI MOSI'], 25: ['ADC2_8', 'DAC1'], 26: ['ADC2_9', 'DAC2'], 27: ['ADC2_7', 'TOUCH7'],
+  32: ['ADC1_4', 'TOUCH9'], 33: ['ADC1_5', 'TOUCH8'], 34: ['ADC1_6', '입력 전용'], 35: ['ADC1_7', '입력 전용'], 36: ['ADC1_0', '입력 전용'], 39: ['ADC1_3', '입력 전용'],
+};
+const ESP_ADC = [32, 33, 34, 35, 36, 39, 0, 2, 4, 12, 13, 14, 15, 25, 26, 27];
+const ESP_TOUCH = [0, 2, 4, 12, 13, 14, 15, 27, 32, 33];
+const ESP_PINS = (() => {
+  const pins = {};
+  const mk = (side, list) => list.forEach(([name, t], i) => {
+    const key = side + (i + 1);
+    const p = { num: key, name, side, gpio: null, funcs: [], type: 'gpio' };
+    if (typeof t === 'number') { p.gpio = t; p.funcs = [...(t < 34 ? ['디지털 입출력', 'PWM'] : ['디지털 입력']), ...(ESP_FUNCS[t] || [])]; }
+    else if (t === 'gnd') { p.type = 'gnd'; p.v = 0; }
+    else if (t === 'power') { p.type = 'power'; p.v = 3.3; }
+    else if (t === 'power5') { p.type = 'power5'; p.v = 5.0; }
+    else { p.type = 'ctrl'; p.funcs = [t === 'flash' ? '내장 SPI 플래시 연결 — 사용 금지' : 'EN(리셋, LOW = 리셋)']; }
+    pins[key] = p;
+  });
+  mk('L', ESP_LEFT); mk('R', ESP_RIGHT);
+  return pins;
+})();
+const ESP_GPIO_KEY = {};
+Object.values(ESP_PINS).forEach(p => { if (p.gpio != null) ESP_GPIO_KEY[p.gpio] = p.num; });
+const ESP_GPIOS = Object.keys(ESP_GPIO_KEY).map(Number).sort((a, b) => a - b);
+
+BOARDS.esp32 = {
+  type: 'esp32', id: 'esp', label: 'ESP32 DevKitC', short: 'ESP32', icon: '📡',
+  pins: ESP_PINS,
+  gpios: ESP_GPIOS,
+  pinLabel: g => 'GPIO' + g,
+  gpioKey: g => ESP_GPIO_KEY[g] || null,
+  desc: 'ESP32-WROOM-32 · 듀얼코어 240MHz · 520KB SRAM · WiFi/Bluetooth · 3.3V 로직. GPIO34~39는 입력 전용(풀업 없음), SD0~3/CLK/CMD(GPIO6~11)는 플래시용이라 사용할 수 없습니다. I2C/SPI/UART는 아무 핀에나 배정할 수 있습니다.',
+  controls: [{ k: 'temp', type: 'range', label: '칩 온도', min: 20, max: 80, unit: '°C' }],
+  init: () => ({ temp: 45, boot: false }),
+  html(n, ed) {
+    const rows = [];
+    const tip = p => esc(`${p.name}${p.gpio != null ? ' (GPIO' + p.gpio + ')' : ''}\n${p.funcs.join(', ')}`);
+    const lbl = p => p.gpio != null && !/^IO\d/.test(p.name) ? `${p.name}<small class="g">${p.gpio}</small>` : p.name;
+    for (let i = 1; i <= 19; i++) {
+      const L = ESP_PINS['L' + i], R = ESP_PINS['R' + i];
+      rows.push(`<div class="prow">
+        <i class="port k-pin t-${L.type}" data-t="esp:${L.num}" data-s="-1" title="${tip(L)}"></i>
+        <span class="plbl t-${L.type}" data-g="${L.gpio ?? ''}">${lbl(L)}</span>
+        <span class="pmid"></span>
+        <span class="plbl r t-${R.type}" data-g="${R.gpio ?? ''}">${lbl(R)}</span>
+        <i class="port k-pin t-${R.type}" data-t="esp:${R.num}" data-s="1" title="${tip(R)}"></i>
+      </div>`);
+    }
+    const ctls = this.controls.map(c => ed.controlHTML(n, c)).join('');
+    return `<div class="nhead" style="--c:#c0392b"><span class="ico">📡</span><span class="ttl">ESP32 DevKitC</span><b class="nm">WROOM-32</b></div>
+      <div class="esp-board">
+        <div class="esp-center">
+          <div class="esp-mod"><div class="ant"></div><div class="can">ESP32<br><small>WROOM-32</small></div></div>
+          <div class="esp-wifi" title="WiFi 상태">📶</div>
+          <div class="obled blue" title="보드 LED (GPIO2)"></div><span class="ledlbl">LED IO2</span>
+          <div class="esp-btns"><button class="mini" data-hold="boot" title="BOOT 버튼 (GPIO0 → GND)">BOOT</button><span class="mini en">EN</span></div>
+          <div class="usb bottom"></div>
+        </div>
+        <div class="prows">${rows.join('')}</div>
+        <div class="esp-ctls">${ctls}</div>
+      </div>`;
+  },
+  outputs(n) { return { R14: n.st.boot ? { v: 0 } : { v: 3.3, weak: true } }; },
+  render(n, sim) {
+    renderBoardPins(n, sim, 2);
+    const w = n.el.querySelector('.esp-wifi');
+    const on = sim.running && n.rt.wifi === 'connected';
+    w.classList.toggle('on', on);
+    w.classList.toggle('busy', sim.running && n.rt.wifi === 'connecting');
+    const b = n.el.querySelector('[data-hold=boot]');
+    b.classList.toggle('on', !!n.st.boot);
+  },
+  stop(n) { n.rt.wifi = ''; },
 };
 
 const boardDef = n => n && BOARDS[n.type];

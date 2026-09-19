@@ -186,7 +186,7 @@ class Editor {
     // 모듈/보드 컨트롤
     const d = DEVICES[n.type] || BOARDS[n.type];
     if (d) {
-      el.querySelectorAll('.dview [data-k], .mb-ctls [data-k]').forEach(inp => {
+      el.querySelectorAll('.dview [data-k], .mb-ctls [data-k], .esp-ctls [data-k]').forEach(inp => {
         const c = (d.controls || []).find(x => x.k === inp.dataset.k);
         const ev = inp.type === 'range' ? 'input' : 'change';
         inp.addEventListener(ev, () => {

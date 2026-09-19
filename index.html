@@ -17,6 +17,7 @@
   <select id="boardSel" class="boardsel" title="대상 보드">
     <option value="pico">🍓 Raspberry Pi Pico</option>
     <option value="microbit">🟦 BBC micro:bit V2</option>
+    <option value="esp32">📡 ESP32 DevKitC</option>
   </select>
   <div class="grp">
     <button id="btnNew" title="새 프로젝트 (Ctrl+N)">📄 새로</button>
@@ -35,7 +36,7 @@
   </div>
   <div class="grp pico">
     <span class="glbl">실제 보드</span>
-    <button id="btnConnect" title="USB로 연결된 Pico / micro:bit 선택 (Web Serial)">🔌 연결</button>
+    <button id="btnConnect" title="USB로 연결된 Pico / micro:bit / ESP32 선택 (Web Serial)">🔌 연결</button>
     <button id="btnUpload" title="main.py와 라이브러리를 보드에 저장하고 실행" disabled>⬆ 업로드</button>
     <button id="btnRunPico" title="저장하지 않고 보드에서 바로 실행" disabled>▶ 바로 실행</button>
     <button id="btnStopPico" title="보드 실행 중지 (Ctrl+C)" disabled>■</button>
@@ -116,7 +117,7 @@
   <div class="mbox">
     <h2>picoBuilder 사용법</h2>
     <ol>
-      <li><b>보드 선택</b>: 상단에서 Raspberry Pi Pico 또는 BBC micro:bit V2를 고릅니다. 생성되는 코드(machine / microbit 모듈)와 사용 가능한 노드가 보드에 맞게 바뀝니다.</li>
+      <li><b>보드 선택</b>: 상단에서 Raspberry Pi Pico, BBC micro:bit V2, ESP32 DevKitC 중 하나를 고릅니다. 생성되는 코드(machine / microbit 모듈)와 사용 가능한 노드가 보드에 맞게 바뀝니다.</li>
       <li><b>노드 추가</b>: 왼쪽 팔레트에서 모듈/프로그램 노드를 캔버스로 드래그(또는 클릭)합니다.</li>
       <li><b>배선</b>: 포트(동그라미)를 끌어 다른 포트에 놓습니다. Pico의 모든 핀(전원·GND 포함)과 모듈 핀을 자유롭게 연결할 수 있습니다.
         <br>하드웨어 배선은 실선, <span class="c-pin">핀 참조</span>·<span class="c-dev">모듈 참조</span>는 점선으로 표시됩니다.</li>
@@ -125,7 +126,7 @@
       <li><b>모듈 참조(◆)</b>: 모듈 헤더의 ◆ 포트를 프로그램 노드의 "모듈" 입력에 연결하거나, 노드의 드롭다운에서 모듈을 고릅니다.</li>
       <li><b>코드</b>: 오른쪽에 MicroPython 코드가 자동 생성됩니다. 직접 수정하면 <b>직접 편집</b> 모드가 되며, "노드에서 생성"으로 되돌릴 수 있습니다.</li>
       <li><b>시뮬레이션</b>(F5): 브라우저 안의 Python(Pyodide)으로 코드를 실행합니다. 버튼·가변저항·센서 값을 노드에서 조작해 보세요.</li>
-      <li><b>보드 업로드</b>: Chrome/Edge에서 "연결" → 보드 선택 → "업로드" 하면 main.py와 필요한 드라이버가 저장되고 실행됩니다. (MicroPython 펌웨어 필요 · micro:bit는 python.microbit.org 에서 설치)</li>
+      <li><b>보드 업로드</b>: Chrome/Edge에서 "연결" → 보드 선택 → "업로드" 하면 main.py와 필요한 드라이버가 저장되고 실행됩니다. (MicroPython 펌웨어 필요 · micro:bit는 python.microbit.org, ESP32는 micropython.org/download/ESP32_GENERIC 에서 설치)</li>
     </ol>
     <p class="keys"><b>단축키</b> F5 실행 · Shift+F5 정지 · Ctrl+S 저장 · Ctrl+O 열기 · Ctrl+Z/Y 실행취소/다시실행 · Delete 삭제 · Ctrl+D 복제 · 와이어 더블클릭 삭제</p>
     <button id="helpClose" class="accent">닫기</button>

@@ -323,3 +323,30 @@ g.w .hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: st
 .ep .port.t-power { background: #e53935; }
 .ep .port.conn { box-shadow: 0 0 0 2px #61afef; }
 .exgrp { margin: 6px 8px 2px; font-size: 11px; color: var(--muted); font-weight: 700; border-top: 1px solid #333; padding-top: 6px; }
+
+/* ---------- ESP32 ---------- */
+.node.esp32 { width: 290px; background: #1f2a33; border-color: #c0392b; }
+.esp-board { position: relative; padding: 14px 0 8px; }
+.esp-board .prow .port { margin: 0 -6px; background: #c9a33a; border-color: #1f2a33; }
+.esp-board .prow .port.t-gnd { background: #222; border-color: #555; }
+.esp-board .prow .port.t-power { background: #e53935; }
+.esp-board .prow .port.t-power5 { background: #ff7043; }
+.esp-board .prow .port.t-ctrl { background: #666; }
+.esp-board .plbl { width: 84px; color: #e3eef7; }
+.esp-board .plbl small.g { width: auto; margin-left: 4px; color: #9fb3c8; }
+.esp-center { position: absolute; left: 84px; right: 84px; top: 8px; bottom: 60px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.esp-mod { width: 84px; border-radius: 3px; overflow: hidden; box-shadow: 0 2px 6px #0008; }
+.esp-mod .ant { height: 22px; background: repeating-linear-gradient(90deg, #1b1b1b 0 6px, #caa64a 6px 8px); }
+.esp-mod .can { height: 104px; background: linear-gradient(135deg, #d9dde0, #9ea5aa); color: #333; font: 700 12px Consolas, monospace; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.esp-mod .can small { font-size: 9px; font-weight: 400; }
+.esp-wifi { font-size: 16px; filter: grayscale(1); opacity: .4; }
+.esp-wifi.busy { opacity: .8; animation: blink .6s infinite; }
+.esp-wifi.on { filter: none; opacity: 1; }
+.obled.blue.on { background: #6ab0ff; box-shadow: 0 0 10px 3px #4d9dff; }
+.esp-btns { display: flex; gap: 6px; }
+.esp-btns .mini { font-size: 9px; padding: 2px 5px; }
+.esp-btns .mini.en { background: #333; border: 1px solid #555; border-radius: 4px; color: #999; }
+.esp-btns .mini.on { background: #1f6feb; }
+.usb.bottom { margin-top: auto; width: 46px; height: 14px; background: linear-gradient(#9aa0a4, #cfd3d6); border-radius: 3px 3px 0 0; }
+.esp-ctls { padding: 8px 12px 0; }
+.esp-ctls .ctl input[type=range] { flex: 1; width: auto; }
