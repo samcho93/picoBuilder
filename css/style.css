@@ -350,3 +350,12 @@ g.w .hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: st
 .usb.bottom { margin-top: auto; width: 46px; height: 14px; background: linear-gradient(#9aa0a4, #cfd3d6); border-radius: 3px 3px 0 0; }
 .esp-ctls { padding: 8px 12px 0; }
 .esp-ctls .ctl input[type=range] { flex: 1; width: auto; }
+/* 예제 메뉴: 보드 탭 + 스크롤 */
+.ddmenu { max-height: calc(100vh - var(--top-h) - 16px); display: none; flex-direction: column; min-width: 340px; }
+.dd.open .ddmenu { display: flex; }
+.extabs { display: flex; gap: 4px; padding: 2px 2px 6px; border-bottom: 1px solid #333; flex: none; }
+.extabs button { flex: 1; font-size: 12px; padding: 4px 6px; background: #2b2b2b; }
+.extabs button.on { background: #1f6feb; border-color: #388bfd; color: #fff; }
+.extabs em { font-style: normal; opacity: .7; margin-left: 2px; }
+.exlist { overflow-y: auto; padding-top: 4px; }.ddmenu .extabs, .ddmenu .exlist { cursor: default; border-radius: 0; padding-left: 2px; padding-right: 2px; }
+.ddmenu .extabs:hover, .ddmenu .exlist:hover { background: none; }

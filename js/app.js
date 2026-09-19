@@ -571,9 +571,17 @@ class App {
     }));
 
     const dd = $('btnEx').parentElement;
-    $('exMenu').innerHTML = EXAMPLES.map((x, i) => `${x.group ? `<p class="exgrp">${esc(x.group)}</p>` : ''}<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>`).join('');
-    $('btnEx').onclick = e => { e.stopPropagation(); dd.classList.toggle('open'); };
+    // 예제 메뉴: 보드별 탭 + 스크롤 목록 (현재 보드 탭이 기본)
+    const exBoard = x => x.board || (/^Ⓜ/.test(x.name) ? 'microbit' : /^Ⓔ/.test(x.name) ? 'esp32' : 'pico');
+    const renderEx = bt => {
+      $('exMenu').innerHTML = `<div class="extabs">${Object.values(BOARDS).map(b => `<button data-exb="${b.type}" class="${b.type === bt ? 'on' : ''}">${b.icon} ${esc(b.short)} <em>${EXAMPLES.filter(x => exBoard(x) === b.type).length}</em></button>`).join('')}</div>
+        <div class="exlist">${EXAMPLES.map((x, i) => exBoard(x) === bt ? `<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>` : '').join('')}</div>`;
+    };
+    $('btnEx').onclick = e => { e.stopPropagation(); if (!dd.classList.contains('open')) renderEx(this.boardType()); dd.classList.toggle('open'); };
     $('exMenu').onclick = e => {
+      e.stopPropagation();
+      const tab = e.target.closest('[data-exb]');
+      if (tab) { renderEx(tab.dataset.exb); return; }
       const it = e.target.closest('[data-i]');
       if (!it) return;
       dd.classList.remove('open');
