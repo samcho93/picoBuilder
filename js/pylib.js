@@ -114,7 +114,11 @@ class SSD1306_I2C(SSD1306):
 `;
 
 PY_DRIVERS.i2c_lcd = String.raw`# HD44780 16x2 LCD + PCF8574 I2C backpack driver (picoBuilder)
-import time
+try:
+    import time
+    time.sleep_ms
+except (ImportError, AttributeError):
+    import utime as time
 
 
 class I2cLcd:
@@ -210,7 +214,11 @@ class I2cLcd:
 `;
 
 PY_DRIVERS.aht20 = String.raw`# AHT20 temperature/humidity sensor driver (picoBuilder)
-import time
+try:
+    import time
+    time.sleep_ms
+except (ImportError, AttributeError):
+    import utime as time
 
 
 class AHT20:
@@ -268,7 +276,11 @@ class MPU6050:
 `;
 
 PY_DRIVERS.bh1750 = String.raw`# BH1750 ambient light sensor driver (picoBuilder)
-import time
+try:
+    import time
+    time.sleep_ms
+except (ImportError, AttributeError):
+    import utime as time
 
 
 class BH1750:
@@ -481,6 +493,10 @@ async def __pb_sleep(kind, v):
     _last[0] = pbhw.now_ms()
 
 
+async def asleep_ms(ms):
+    await __pb_sleep('sleep_ms', ms)
+
+
 async def __pb_aw(x):
     if asyncio.iscoroutine(x):
         return await x
@@ -506,7 +522,7 @@ def report():
     out = ['Traceback (most recent call last):']
     for fs in traceback.extract_tb(tb):
         fn = fs.filename
-        if fn == 'main.py' or (fn.startswith('/pblib/') and not fn.endswith(('_pbrt.py', 'machine.py', 'framebuf.py'))):
+        if fn == 'main.py' or (fn.startswith('/pblib/') and not fn.endswith(('_pbrt.py', 'framebuf.py', 'mbcompat.py'))):
             out.append('  File "%s", line %d, in %s' % (fn.replace('/pblib/', ''), fs.lineno, fs.name))
             if fs.line:
                 out.append('    ' + fs.line.strip())
@@ -559,6 +575,8 @@ class _Collect(ast.NodeVisitor):
         self.time_mods = set()
         self.sleep_names = set()
         self.asyncio_names = set()
+        self.mb_mods = set()
+        self.music_mods = set()
 
     def visit_FunctionDef(self, node):
         if not node.name.startswith('__') and not _has_yield(node):
@@ -571,12 +589,20 @@ class _Collect(ast.NodeVisitor):
                 self.time_mods.add(a.asname or a.name)
             if a.name in ('asyncio', 'uasyncio'):
                 self.asyncio_names.add(a.asname or a.name)
+            if a.name == 'microbit':
+                self.mb_mods.add(a.asname or a.name)
+            if a.name == 'music':
+                self.music_mods.add(a.asname or a.name)
 
     def visit_ImportFrom(self, node):
         if node.module in ('time', 'utime'):
             for a in node.names:
                 if a.name in SLEEPS:
                     self.sleep_names.add((a.asname or a.name, a.name))
+        if node.module == 'microbit':
+            for a in node.names:
+                if a.name in ('*', 'sleep'):
+                    self.sleep_names.add((a.asname or 'sleep', 'sleep_ms'))
 
 
 class _Tx(ast.NodeTransformer):
@@ -655,13 +681,26 @@ class _Tx(ast.NodeTransformer):
             return f.attr
         if isinstance(f, ast.Name) and f.id in self.sleep_map:
             return self.sleep_map[f.id]
+        if isinstance(f, ast.Attribute) and f.attr == 'sleep' and isinstance(f.value, ast.Name) and f.value.id in self.c.mb_mods:
+            return 'sleep_ms'
         return None
+
+    def _blocking(self, f):
+        # micro:bit의 애니메이션/소리 함수는 끝날 때까지 기다리는 코루틴을 반환
+        if not isinstance(f, ast.Attribute):
+            return False
+        v = f.value
+        if f.attr in ('show', 'scroll'):
+            return (isinstance(v, ast.Name) and v.id == 'display') or (isinstance(v, ast.Attribute) and v.attr == 'display')
+        if f.attr in ('play', 'pitch'):
+            return isinstance(v, ast.Name) and (v.id in self.c.music_mods or v.id == 'music')
+        return False
 
     def visit_Call(self, node):
         self.generic_visit(node)
         f = node.func
         if not self._async():
-            if (isinstance(f, ast.Name) and f.id in self.c.funcs) or (isinstance(f, ast.Attribute) and f.attr in self.c.funcs):
+            if (isinstance(f, ast.Name) and f.id in self.c.funcs) or (isinstance(f, ast.Attribute) and f.attr in self.c.funcs) or self._blocking(f):
                 return ast.copy_location(ast.Call(func=ast.Name('__pb_sync', ast.Load()), args=[node], keywords=[]), node)
             return node
         if isinstance(f, ast.Attribute) and f.attr == 'run' and isinstance(f.value, ast.Name) and f.value.id in self.c.asyncio_names and node.args:
@@ -670,7 +709,7 @@ class _Tx(ast.NodeTransformer):
         if k and node.args:
             call = ast.Call(func=ast.Name('__pb_sleep', ast.Load()), args=[ast.Constant(k), node.args[0]], keywords=[])
             return ast.copy_location(ast.Await(value=call), node)
-        if (isinstance(f, ast.Name) and f.id in self.c.funcs) or (isinstance(f, ast.Attribute) and f.attr in self.c.funcs):
+        if (isinstance(f, ast.Name) and f.id in self.c.funcs) or (isinstance(f, ast.Attribute) and f.attr in self.c.funcs) or self._blocking(f):
             call = ast.Call(func=ast.Name('__pb_aw', ast.Load()), args=[node], keywords=[])
             return ast.copy_location(ast.Await(value=call), node)
         return node
@@ -695,13 +734,20 @@ def _purge():
     for k in list(sys.modules):
         m = sys.modules.get(k)
         f = getattr(m, '__file__', '') or ''
-        if f.startswith('/pblib/') and k != '_pbrt':
+        if f.startswith('/pb') and k not in ('_pbrt', 'time_patch'):
             del sys.modules[k]
 
 
-async def run(src):
+async def run(src, board='pico'):
     _purge()
-    import machine  # noqa: 디스패처 등록
+    for p in ('/pbpico', '/pbmb'):
+        while p in sys.path:
+            sys.path.remove(p)
+    sys.path.insert(0, '/pbmb' if board == 'microbit' else '/pbpico')
+    if board == 'microbit':
+        import microbit  # noqa: 화면 초기화
+    else:
+        import machine  # noqa: 디스패처 등록
     _last[0] = pbhw.now_ms()
     linecache.cache['main.py'] = (len(src), None, src.splitlines(True), 'main.py')
     try:
@@ -1296,7 +1342,7 @@ MONO_HMSB = 4
 GS2_HMSB = 5
 GS8 = 6
 
-_FONT = bytes.fromhex('__FONT__')
+_FONT = __FONT__
 
 
 class FrameBuffer:
@@ -1464,7 +1510,8 @@ class NeoPixel:
         self.n = n
         self.bpp = bpp
         self.buf = bytearray(n * bpp)
-        self.pin.init(pin.OUT)
+        if hasattr(pin, 'init'):
+            self.pin.init(pin.OUT)
 
     def __len__(self):
         return self.n
@@ -1483,7 +1530,14 @@ class NeoPixel:
             self[i] = v
 
     def write(self):
-        pbhw.neopixel_write(self.pin._id, bytes(self.buf).decode('latin-1'))
+        pid = self.pin._id if hasattr(self.pin, '_id') else self.pin._n
+        pbhw.neopixel_write(pid, bytes(self.buf).decode('latin-1'))
+
+    show = write
+
+    def clear(self):
+        self.fill((0, 0, 0))
+        self.write()
 `;
 
 PY_SIM.dht = String.raw`import pbhw
@@ -1617,4 +1671,8 @@ def asm_pio(*a, **k):
     return d
 `;
 
-PY_SIM.framebuf = PY_SIM.framebuf.replace('__FONT__', FONT5x7_HEX);
+PY_SIM.framebuf = PY_SIM.framebuf.replace('__FONT__', "b'" + FONT5x7.map(b => '\\x' + b.toString(16).padStart(2, '0')).join('') + "'");
+
+// 보드별 모듈 분리: 공통(/pblib), Pico 전용(/pbpico)
+const PY_PICO = {};
+for (const k of ['machine', 'dht', 'onewire', 'ds18x20', '_thread', 'rp2']) { PY_PICO[k] = PY_SIM[k]; delete PY_SIM[k]; }

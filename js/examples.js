@@ -1,14 +1,16 @@
 // 예제 프로젝트
 'use strict';
 
-function buildProject(name, fn) {
-  const nodes = [{ id: 'pico', type: 'pico', name: 'pico', x: 430, y: 40, st: {} }];
+function buildProject(name, fn, board = 'pico') {
+  const bd = BOARDS[board];
+  const nodes = [{ id: bd.id, type: board, name: bd.id, x: 430, y: 40, st: bd.init ? bd.init() : {} }];
   const wires = [];
   let seq = 1;
   const counts = {};
   const api = {
     _find: id => nodes.find(n => n.id === id),
     P(p) {
+      if (board === 'microbit') return 'mb:' + (typeof p === 'number' ? 'P' + p : p);
       if (typeof p === 'number') return 'pico:' + p;
       if (/^GP\d+$/.test(p)) return 'pico:' + GPIO_TO_PIN[+p.slice(2)];
       return 'pico:' + { '3V3': 36, VBUS: 40, VSYS: 39, GND: 38 }[p];
@@ -34,11 +36,12 @@ function buildProject(name, fn) {
     data(src, dst) { const [a, pa] = src.split('.'); const [b, pb] = dst.split('.'); wires.push({ a: `${a}:${pa}`, b: `${b}:${pb}` }); },
   };
   const extra = fn(api) || {};
-  return { version: 1, name, circuit: { nodes, wires, seq }, ...extra };
+  return { version: 1, name, board, circuit: { nodes, wires, seq }, ...extra };
 }
 
 const EXAMPLES = [
   {
+    group: '🍓 Raspberry Pi Pico',
     name: '① 보드 LED 깜빡이기', desc: '가장 기본: 내장 LED(GP25)를 0.5초마다 토글',
     build: () => buildProject('보드 LED 깜빡이기', E => {
       const loop = E.node('ev_loop', 780, 60, { delay: 0 });
@@ -265,3 +268,103 @@ while True:
 
 // 예제에서 노드 입력 기본값을 지정할 때 사용
 function nodeSt(E, id) { return E._find(id).st; }
+
+// ---------------- micro:bit 예제 ----------------
+EXAMPLES.push(
+  {
+    group: '🟦 BBC micro:bit V2',
+    name: 'Ⓜ① 버튼으로 표정 바꾸기', desc: '버튼 A=웃음, B=슬픔, 흔들면 소리 (내장 기능만 사용)',
+    build: () => buildProject('micro:bit 표정', E => {
+      const st = E.node('ev_start', 1000, 40);
+      const sc = E.node('mb_scroll', 1180, 40);
+      Object.assign(nodeSt(E, sc), { text: 'Hi!' });
+      E.flow(st, sc);
+      const a = E.node('ev_mb_button', 1000, 150, { btn: 'a' });
+      const ia = E.node('mb_image', 1200, 150, { img: 'HAPPY' });
+      E.flow(a, ia);
+      const b = E.node('ev_mb_button', 1000, 270, { btn: 'b' });
+      const ib = E.node('mb_image', 1200, 270, { img: 'SAD' });
+      E.flow(b, ib);
+      const g = E.node('ev_mb_gesture', 1000, 390, { g: 'shake' });
+      const m = E.node('mb_melody', 1200, 390, { m: 'BA_DING', wait: 'False' });
+      const ic = E.node('mb_image', 1400, 390, { img: 'SURPRISED' });
+      E.flow(g, m, ic);
+    }, 'microbit'),
+  },
+  {
+    name: 'Ⓜ② 기울기 수평계', desc: '가속도 센서로 기울어진 쪽에 LED 점 표시',
+    build: () => buildProject('micro:bit 수평계', E => {
+      const loop = E.node('ev_loop', 1000, 40, { delay: 50 });
+      const cl = E.node('mb_clear', 1180, 40);
+      const pl = E.node('mb_plot', 1360, 40);
+      E.flow(loop, cl, pl);
+      const ac = E.node('mb_accel', 1000, 200);
+      const mx = E.node('map', 1180, 180), my = E.node('map', 1180, 350);
+      for (const m of [mx, my]) Object.assign(nodeSt(E, m), { a: -1024, b: 1024, c: 0, d: 4 });
+      const rx = E.node('mathfn', 1360, 200, { fn: 'round' }), ry = E.node('mathfn', 1360, 300, { fn: 'round' });
+      E.data(ac + '.x', mx + '.x'); E.data(ac + '.y', my + '.x');
+      E.data(mx + '.r', rx + '.x'); E.data(my + '.r', ry + '.x');
+      E.data(rx + '.r', pl + '.x'); E.data(ry + '.r', pl + '.y');
+    }, 'microbit'),
+  },
+  {
+    name: 'Ⓜ③ 가변저항 → 서보', desc: '엣지 커넥터 P0(아날로그) 가변저항으로 P1 서보 제어',
+    build: () => buildProject('micro:bit 서보', E => {
+      const pot = E.dev('pot', 360, 520);
+      const sv = E.dev('servo', 620, 520);
+      E.hw(pot, { VCC: '3V', GND: 'GND', OUT: 0 });
+      E.hw(sv, { GND: 'GND', VCC: '3V', SIG: 1 });
+      const loop = E.node('ev_loop', 1000, 40, { delay: 20 });
+      const m = E.node('m_servo', 1180, 40);
+      const a = E.node('m_analog', 1000, 200);
+      const map = E.node('map', 1180, 200);
+      E.flow(loop, m);
+      E.ref(sv, m); E.ref(pot, a);
+      E.data(a + '.value', map + '.x');
+      Object.assign(nodeSt(E, map), { b: 100, d: 180 });
+      E.data(map + '.r', m + '.angle');
+    }, 'microbit'),
+  },
+  {
+    name: 'Ⓜ④ 내장 센서 → OLED', desc: '온도·빛 센서 값을 I2C OLED(P19/P20)에 표시',
+    build: () => buildProject('micro:bit OLED', E => {
+      const oled = E.dev('oled', 560, 520);
+      E.hw(oled, { GND: 'GND', VCC: '3V', SCL: 19, SDA: 20 });
+      const loop = E.node('ev_loop', 1000, 40, { delay: 1000 });
+      const c = E.node('m_oled_clear', 1170, 40);
+      const t1 = E.node('m_oled_text', 1340, 40), t2 = E.node('m_oled_text', 1540, 40);
+      const s = E.node('m_oled_show', 1740, 40);
+      E.flow(loop, c, t1, t2, s);
+      [c, t1, t2, s].forEach(n => E.ref(oled, n));
+      const sen = E.node('mb_sensors', 1000, 250);
+      const j1 = E.node('join', 1180, 240), j2 = E.node('join', 1180, 340);
+      Object.assign(nodeSt(E, j1), { a: 'Temp: ' }); Object.assign(nodeSt(E, j2), { a: 'Light: ' });
+      E.data(sen + '.t', j1 + '.b'); E.data(sen + '.l', j2 + '.b');
+      E.data(j1 + '.r', t1 + '.text'); E.data(j2 + '.r', t2 + '.text');
+      Object.assign(nodeSt(E, t1), { y: 16 }); Object.assign(nodeSt(E, t2), { y: 36 });
+    }, 'microbit'),
+  },
+  {
+    name: 'Ⓜ⑤ [코드] 반응 속도 게임', desc: 'Python 직접 작성: 화면이 켜지면 A 버튼을 빨리 누르기',
+    build: () => buildProject('micro:bit 반응속도 (코드)', () => ({
+      codeMode: 'manual', code: `from microbit import *
+import music
+import random
+
+display.scroll('READY')
+while True:
+    display.clear()
+    sleep(random.randint(1000, 3000))
+    display.show(Image.TARGET)
+    start = running_time()
+    while not button_a.is_pressed():
+        sleep(1)
+    ms = running_time() - start
+    music.pitch(880, 100)
+    print('반응 시간:', ms, 'ms')
+    display.scroll(str(ms))
+    sleep(500)
+`,
+    }), 'microbit'),
+  },
+);

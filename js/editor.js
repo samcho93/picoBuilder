@@ -69,7 +69,7 @@ class Editor {
     const el = document.createElement('div');
     el.className = 'node';
     el.dataset.id = n.id;
-    if (n.type === 'pico') { el.classList.add('pico'); el.innerHTML = this.picoHTML(); }
+    if (BOARDS[n.type]) { el.classList.add('board', n.type); el.innerHTML = BOARDS[n.type].html(n, this); }
     else if (DEVICES[n.type]) { el.classList.add('dev'); el.innerHTML = this.devHTML(n); }
     else if (NODES[n.type]) { el.classList.add('prog'); el.innerHTML = this.progHTML(n); }
     else { el.innerHTML = `<div class="nhead"><span class="ttl">알 수 없는 노드: ${esc(n.type)}</span><span class="hbtn del">×</span></div>`; }
@@ -82,28 +82,9 @@ class Editor {
     this.bindNode(n, el);
     const d = DEVICES[n.type];
     if (d && d.mount) d.mount(n, el.querySelector('.dview'), this.app);
+    const bd = BOARDS[n.type];
+    if (bd && bd.mount) bd.mount(n, el, this.app);
     if (NODES[n.type]) this.fillDevSelects(el);
-  }
-
-  picoHTML() {
-    const rows = [];
-    for (let i = 0; i < 20; i++) {
-      const L = PICO_PINS[i + 1], R = PICO_PINS[40 - i];
-      const tip = p => esc(`핀 ${p.num} · ${p.name}${p.gpio != null ? ' (GPIO' + p.gpio + ')' : ''}\n${p.funcs.length ? p.funcs.join(', ') : (PICO_DESC[p.name] || '')}`);
-      rows.push(`<div class="prow">
-        <i class="port k-pin t-${L.type}" data-t="pico:${L.num}" data-s="-1" title="${tip(L)}"></i>
-        <span class="plbl t-${L.type}" data-g="${L.gpio ?? ''}"><small>${L.num}</small>${L.name}</span>
-        <span class="pmid"></span>
-        <span class="plbl r t-${R.type}" data-g="${R.gpio ?? ''}">${R.name}<small>${R.num}</small></span>
-        <i class="port k-pin t-${R.type}" data-t="pico:${R.num}" data-s="1" title="${tip(R)}"></i>
-      </div>`);
-    }
-    return `<div class="nhead" style="--c:#1b7f3b"><span class="ico">🍓</span><span class="ttl">Raspberry Pi Pico</span><b class="nm">RP2040</b></div>
-      <div class="pico-board"><div class="usb"></div>
-        <div class="pico-center"><div class="obled" title="내장 LED (GP25)"></div><span class="ledlbl">LED GP25</span>
-          <div class="rp2040">RP2040</div><div class="bootsel">BOOTSEL</div><div class="flash">W25Q16</div></div>
-        <div class="prows">${rows.join('')}</div>
-      </div>`;
   }
 
   controlHTML(n, c) {
@@ -128,7 +109,10 @@ class Editor {
 
   editorHTML(n, p) {
     const v = n.st[p.n] ?? p.def;
-    if (p.k === 'pin') return `<select class="ed" data-k="pin"><option value="">GP?</option>${GPIO_LIST.map(g => `<option value="${g}" ${String(n.st.pin) === String(g) ? 'selected' : ''}>GP${g}</option>`).join('')}</select>`;
+    if (p.k === 'pin') {
+      const bd = BOARDS[this.app.boardType()];
+      return `<select class="ed" data-k="pin"><option value="">핀?</option>${bd.gpios.map(g => `<option value="${g}" ${String(n.st.pin) === String(g) ? 'selected' : ''}>${bd.pinLabel(g)}</option>`).join('')}</select>`;
+    }
     if (p.k === 'dev') return `<select class="ed dev-sel" data-k="dev" data-types="${p.types.join(',')}"></select>`;
     if (p.k !== 'data') return '';
     if (p.t === 'bool') return `<input class="ed" type="checkbox" data-k="${p.n}" ${v === false || v === 'False' ? '' : 'checked'}>`;
@@ -199,10 +183,10 @@ class Editor {
     if (flip) flip.addEventListener('click', e => { e.stopPropagation(); n.flip = !n.flip; this.mountNode(n); this.refreshConn(); this.drawWires(); this.app.changed({ code: false }); });
     el.querySelectorAll('.port').forEach(p => p.addEventListener('pointerdown', e => this.startWire(e, p.dataset.t)));
 
-    // 모듈 컨트롤
-    const d = DEVICES[n.type];
+    // 모듈/보드 컨트롤
+    const d = DEVICES[n.type] || BOARDS[n.type];
     if (d) {
-      el.querySelectorAll('.dview [data-k]').forEach(inp => {
+      el.querySelectorAll('.dview [data-k], .mb-ctls [data-k]').forEach(inp => {
         const c = (d.controls || []).find(x => x.k === inp.dataset.k);
         const ev = inp.type === 'range' ? 'input' : 'change';
         inp.addEventListener(ev, () => {
@@ -253,7 +237,7 @@ class Editor {
   }
   removeNode(id) {
     const n = this.node(id);
-    if (!n || n.type === 'pico') return;
+    if (!n || BOARDS[n.type]) return;
     this.g.wires = this.g.wires.filter(w => splitTerm(w.a)[0] !== id && splitTerm(w.b)[0] !== id);
     for (const m of this.g.nodes) if (m.st && m.st.dev === id) m.st.dev = '';
     if (n.el) { n.el.querySelectorAll('.port').forEach(p => this.ports.delete(p.dataset.t)); n.el.remove(); }
@@ -314,7 +298,7 @@ class Editor {
   duplicate() {
     if (!this.sel || this.sel.kind !== 'node') return;
     const n = this.node(this.sel.id);
-    if (!n || n.type === 'pico') return;
+    if (!n || BOARDS[n.type]) return;
     this.addNode(n.type, n.x + 30, n.y + 30, { st: JSON.parse(JSON.stringify(n.st)), flip: n.flip });
   }
 
@@ -323,7 +307,7 @@ class Editor {
     const [id, p] = splitTerm(t);
     const n = this.node(id);
     if (!n) return null;
-    if (n.type === 'pico') { const pp = PICO_PINS[p]; return pp ? { hw: true, k: 'pin', dir: 'io', gpio: pp.gpio, role: pp.type, node: n } : null; }
+    if (BOARDS[n.type]) { const pp = BOARDS[n.type].pins[p]; return pp ? { hw: true, board: true, k: 'pin', dir: 'io', gpio: pp.gpio, role: pp.type, node: n } : null; }
     const d = DEVICES[n.type];
     if (d) {
       if (p === '@') return { k: 'dev', dir: 'out', devType: n.type, node: n };
@@ -346,7 +330,7 @@ class Editor {
     if (A.k === 'pin' && B.k === 'pin') {
       const [src, dst, S] = A.dir === 'in' ? [tb, ta, B] : [ta, tb, A];
       if (this.portInfo(dst).dir !== 'in') return null;
-      if (!(S.hw && S.node.type === 'pico' && S.gpio != null)) return { err: '프로그램의 "핀" 입력은 Pico의 GPIO 핀에만 연결할 수 있습니다' };
+      if (!(S.hw && S.board && S.gpio != null)) return { err: '프로그램의 "핀" 입력은 보드의 GPIO 핀에만 연결할 수 있습니다' };
       return { a: src, b: dst, kind: 'pinref', single: 'b' };
     }
     if (A.k !== B.k) return { err: '포트 종류가 다릅니다 (실행 ▶ / 값 ● / 핀 / 모듈 ◆)' };
@@ -416,11 +400,11 @@ class Editor {
     const tmp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     tmp.setAttribute('class', 'wire temp');
     this.svg.appendChild(tmp);
-    const s0 = +(this.ports.get(t).dataset.s || 1);
+    const s0 = this.ports.get(t).dataset.s || '1';
     this.el.classList.add('wiring');
     const mv = ev => {
       const p = this.toWorld(ev.clientX, ev.clientY);
-      tmp.setAttribute('d', this.curve(p0, s0, p, -s0));
+      tmp.setAttribute('d', this.curve(p0, s0, p, s0 === 'd' ? 'u' : String(-s0)));
       const over = document.elementFromPoint(ev.clientX, ev.clientY);
       this.world.querySelectorAll('.port.hover').forEach(x => x.classList.remove('hover'));
       const op = over && over.closest && over.closest('.port');
@@ -447,9 +431,12 @@ class Editor {
     const r = el.getBoundingClientRect();
     return this.toWorld(r.left + r.width / 2, r.top + r.height / 2);
   }
+  // 포트 방향: '1'(오른쪽) '-1'(왼쪽) 'd'(아래) 'u'(위)
   curve(a, sa, b, sb) {
-    const d = Math.max(30, Math.min(160, Math.abs(b.x - a.x) * 0.5 + Math.abs(b.y - a.y) * 0.15));
-    return `M${a.x},${a.y} C${a.x + sa * d},${a.y} ${b.x + sb * d},${b.y} ${b.x},${b.y}`;
+    const v = s => s === 'd' ? [0, 1] : s === 'u' ? [0, -1] : [+s || 1, 0];
+    const [ax, ay] = v(String(sa)), [bx, by] = v(String(sb));
+    const d = Math.max(30, Math.min(160, Math.abs(b.x - a.x) * 0.5 + Math.abs(b.y - a.y) * (ay || by ? 0.5 : 0.15)));
+    return `M${a.x},${a.y} C${a.x + ax * d},${a.y + ay * d} ${b.x + bx * d},${b.y + by * d} ${b.x},${b.y}`;
   }
 
   drawWires() {
@@ -460,7 +447,7 @@ class Editor {
       const a = this.portCenter(w.a), b = this.portCenter(w.b);
       if (!a || !b) return;
       const kind = this.wireKind(w);
-      const sa = +(this.ports.get(w.a).dataset.s || 1), sb = +(this.ports.get(w.b).dataset.s || -1);
+      const sa = this.ports.get(w.a).dataset.s || '1', sb = this.ports.get(w.b).dataset.s || '-1';
       const d = this.curve(a, sa, b, sb);
       const g = document.createElementNS(NS, 'g');
       g.setAttribute('class', 'w');

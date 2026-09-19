@@ -33,6 +33,42 @@ class App {
     setTimeout(() => this.runtime.load().catch(() => { }), 1500);
   }
 
+  // ---------- 보드 ----------
+  boardNode() { return this.circuit.nodes.find(n => BOARDS[n.type]); }
+  boardType() { const b = this.boardNode(); return b ? b.type : 'pico'; }
+
+  switchBoard(type) {
+    const cur = this.boardNode();
+    if (cur && cur.type === type) return;
+    const x = cur ? cur.x : 430, y = cur ? cur.y : 40;
+    if (cur) {
+      const lost = this.circuit.wires.filter(w => splitTerm(w.a)[0] === cur.id || splitTerm(w.b)[0] === cur.id).length;
+      if (lost && !confirm(`보드를 ${BOARDS[type].label}(으)로 바꾸면 보드 핀에 연결된 배선 ${lost}개가 삭제됩니다. 계속할까요?`)) {
+        document.getElementById('boardSel').value = cur.type;
+        return;
+      }
+      this.circuit.wires = this.circuit.wires.filter(w => splitTerm(w.a)[0] !== cur.id && splitTerm(w.b)[0] !== cur.id);
+      if (cur.el) cur.el.remove();
+      this.circuit.nodes = this.circuit.nodes.filter(n => n !== cur);
+    }
+    const bd = BOARDS[type];
+    for (const n of this.circuit.nodes) if (NODES[n.type] && n.st.pin !== undefined && n.st.pin !== '' && !bd.gpios.includes(+n.st.pin)) n.st.pin = '';
+    this.circuit.nodes.unshift({ id: bd.id, type, name: bd.id, x, y, st: bd.init ? bd.init() : {}, rt: {} });
+    if (this.runtime.running) this.runtime.stop();
+    this.afterBoardChange();
+    this.editor.renderAll();
+    this.sim.invalidate();
+    this.changed({});
+    this.toast(`보드 변경: ${bd.label}`, 'ok');
+  }
+
+  afterBoardChange() {
+    const t = this.boardType();
+    document.getElementById('boardSel').value = t;
+    document.body.dataset.board = t;
+    this.filterPalette();
+  }
+
   // ---------- 프로젝트 ----------
   serialize() {
     return {
@@ -52,15 +88,20 @@ class App {
   load(p, opt = {}) {
     if (this.runtime.running) this.runtime.stop();
     const c = JSON.parse(JSON.stringify(p.circuit || { nodes: [], wires: [] }));
-    if (!c.nodes.some(n => n.type === 'pico')) c.nodes.unshift({ id: 'pico', type: 'pico', name: 'pico', x: 430, y: 40, st: {} });
+    if (!c.nodes.some(n => BOARDS[n.type])) {
+      const bt = p.board && BOARDS[p.board] ? p.board : this.boardType();
+      c.nodes.unshift({ id: BOARDS[bt].id, type: bt, name: BOARDS[bt].id, x: 430, y: 40, st: {} });
+    }
     for (const n of c.nodes) {
       n.st = n.st || {};
-      const d = DEVICES[n.type];
+      const d = DEVICES[n.type] || BOARDS[n.type];
       if (d && d.init) n.st = { ...d.init(), ...n.st };
       if (n.type === 'button') n.st.pressed = false;
+      if (BOARDS[n.type]) Object.assign(n.st, { btnA: false, btnB: false, logo: false });
       n.rt = {};
     }
     this.circuit = c;
+    this.afterBoardChange();
     this.circuit.seq = c.seq || c.nodes.length + 1;
     document.getElementById('projName').value = p.name || '새 프로젝트';
     this.editor.sel = null;
@@ -77,7 +118,7 @@ class App {
   }
 
   newProject() {
-    this.load({ name: '새 프로젝트', circuit: { nodes: [], wires: [] } });
+    this.load({ name: '새 프로젝트', board: this.boardType(), circuit: { nodes: [], wires: [] } });
     const e = this.editor;
     e.addNode('ev_start', 790, 60);
     e.addNode('ev_loop', 790, 180);
@@ -169,13 +210,17 @@ class App {
   currentCode() { return this.cm.getValue(); }
 
   neededLibs(code = this.currentCode()) {
-    return Object.keys(PY_DRIVERS).filter(l => new RegExp(`^\\s*(from\\s+${l}\\s+import|import\\s+${l}\\b)`, 'm').test(code));
+    const mb = this.boardType() === 'microbit';
+    const libs = Object.keys(PY_DRIVERS).filter(l => (mb || (l !== 'framebuf' && l !== 'mbcompat')) && new RegExp(`^\\s*(from\\s+${l}\\s+import|import\\s+${l}\\b)`, 'm').test(code));
+    if (mb && (libs.includes('ssd1306') || libs.includes('max7219')) && !libs.includes('framebuf')) libs.unshift('framebuf');
+    return libs;
   }
 
   updateLibBar() {
     const libs = this.neededLibs();
+    const mb = this.boardType() === 'microbit';
     document.getElementById('libBar').innerHTML = libs.length
-      ? `업로드 시 함께 전송되는 드라이버: ${libs.map(l => `<code>/lib/${l}.py</code>`).join(' ')}`
+      ? `업로드 시 함께 전송되는 드라이버: ${libs.map(l => `<code>${mb ? '' : '/lib/'}${l}.py</code>`).join(' ')}`
       : 'MicroPython 내장 모듈만 사용합니다.';
   }
 
@@ -202,7 +247,7 @@ class App {
         html += `<div class="palcat" data-cat="${cid}"><span class="arr">▼</span><span class="sw" style="background:${color}"></span>${cname}<span class="cnt">${types.length}</span></div><div class="palitems">`;
         for (const t of types) {
           const d = defs[t];
-          html += `<div class="palitem" draggable="true" data-type="${t}" style="--c:${color}" title="${esc(d.desc || '')}"><span class="pi">${d.icon || '▸'}</span>${esc(d.label)}</div>`;
+          html += `<div class="palitem" draggable="true" data-type="${t}" data-boards="${(d.boards || []).join(',')}" style="--c:${color}" title="${esc(d.desc || '')}"><span class="pi">${d.icon || '▸'}</span>${esc(d.label)}</div>`;
         }
         html += '</div>';
       }
@@ -220,19 +265,25 @@ class App {
         this.editor.addNode(it.dataset.type, p.x, p.y);
       });
     });
-    document.getElementById('palSearch').addEventListener('input', e => {
-      const q = e.target.value.trim().toLowerCase();
-      list.querySelectorAll('.palitem').forEach(it => {
-        const d = DEVICES[it.dataset.type] || NODES[it.dataset.type];
-        const hit = !q || (d.label + ' ' + (d.desc || '') + ' ' + it.dataset.type).toLowerCase().includes(q);
-        it.style.display = hit ? '' : 'none';
-      });
-      list.querySelectorAll('.palcat').forEach(c => {
-        const items = c.nextElementSibling;
-        const any = [...items.children].some(x => x.style.display !== 'none');
-        c.style.display = any ? '' : 'none';
-        if (q) { c.classList.remove('closed'); items.style.display = ''; }
-      });
+    document.getElementById('palSearch').addEventListener('input', () => this.filterPalette());
+  }
+
+  filterPalette() {
+    const list = document.getElementById('palList');
+    const q = document.getElementById('palSearch').value.trim().toLowerCase();
+    const bt = this.boardType();
+    list.querySelectorAll('.palitem').forEach(it => {
+      const d = DEVICES[it.dataset.type] || NODES[it.dataset.type];
+      const okBoard = !it.dataset.boards || it.dataset.boards.split(',').includes(bt);
+      const hit = okBoard && (!q || (d.label + ' ' + (d.desc || '') + ' ' + it.dataset.type).toLowerCase().includes(q));
+      it.style.display = hit ? '' : 'none';
+    });
+    list.querySelectorAll('.palcat').forEach(c => {
+      const items = c.nextElementSibling;
+      const any = [...items.children].some(x => x.style.display !== 'none');
+      c.style.display = any ? '' : 'none';
+      c.querySelector('.cnt').textContent = [...items.children].filter(x => x.style.display !== 'none').length;
+      if (q) c.classList.remove('closed');
     });
   }
 
@@ -243,7 +294,7 @@ class App {
     const [id, p] = splitTerm(t);
     const n = this.editor.node(id);
     if (!n) return t;
-    if (n.type === 'pico') { const pp = PICO_PINS[p]; return `Pico ${pp.name}(핀${pp.num})`; }
+    if (BOARDS[n.type]) { const bd = BOARDS[n.type], pp = bd.pins[p]; return pp ? `${bd.short} ${pp.name}${n.type === 'pico' ? `(핀${pp.num})` : ''}` : t; }
     if (DEVICES[n.type]) return p === '@' ? `${n.name} ◆` : `${n.name}.${p}`;
     const nd = NODES[n.type];
     const port = [...nd.ins, ...nd.outs].find(x => x.n === p);
@@ -284,15 +335,16 @@ class App {
     sim.evaluate();
     const netTerms = t => { const i = sim.netIndex(t); return i < 0 ? [] : sim.nets[i].terms.filter(x => x !== t); };
     const refs = id => this.circuit.wires.filter(w => w.a === id + ':@').map(w => this.termLabel(w.b));
-    if (n.type === 'pico') {
-      const rows = Object.values(PICO_PINS).map(p => {
-        const t = 'pico:' + p.num;
+    if (BOARDS[n.type]) {
+      const bd = BOARDS[n.type];
+      const rows = Object.values(bd.pins).map(p => {
+        const t = n.id + ':' + p.num;
         const conn = netTerms(t).concat(this.circuit.wires.filter(w => w.a === t && this.editor.wireKind(w) === 'pinref').map(w => w.b));
         if (!conn.length) return '';
-        return `<tr><td>${p.num}</td><td><b>${p.name}</b></td><td>${conn.map(x => `<span class="tag">${esc(this.termLabel(x))}</span>`).join('')}</td></tr>`;
+        return `<tr><td>${n.type === 'pico' ? p.num : ''}</td><td><b>${p.name}</b></td><td>${conn.map(x => `<span class="tag">${esc(this.termLabel(x))}</span>`).join('')}</td></tr>`;
       }).join('');
-      el.innerHTML = `<h3><span class="sw" style="background:#1b7f3b"></span>Raspberry Pi Pico</h3>
-        <p class="desc">RP2040 · 264KB RAM · 2MB Flash · GPIO 26개 (3.3V 로직). 핀에 마우스를 올리면 대체 기능(I2C/SPI/UART/ADC/PWM)이 표시됩니다.</p>
+      el.innerHTML = `<h3><span class="sw" style="background:${n.type === 'pico' ? '#1b7f3b' : '#2c7be5'}"></span>${bd.icon} ${bd.label}</h3>
+        <p class="desc">${esc(bd.desc)}</p>
         <table><tr><th>핀</th><th>이름</th><th>연결</th></tr>${rows || '<tr><td colspan=3>연결된 핀이 없습니다</td></tr>'}</table>`;
       return;
     }
@@ -447,10 +499,12 @@ class App {
     const prog = m => { this.serialLog(`[${m}]\n`, 'info'); this.setStatus(m, 'busy'); };
     this.switchTab('btabs', 'serial');
     try {
-      if (kind === 'upload') await this.serial.upload(code, libs, prog);
-      else await this.serial.runOnce(code, libs, prog);
-      this.setStatus(kind === 'upload' ? '✔ Pico 업로드 완료' : '▶ Pico 실행 중', 'ok');
-      if (kind === 'upload') this.toast('Pico에 main.py 업로드 완료 — 보드가 재시작되며 실행됩니다', 'ok');
+      const bt = this.boardType(), bn = BOARDS[bt].short;
+      if (this.serial.boardHint && this.serial.boardHint !== bt) prog(`⚠ 연결된 보드(${BOARDS[this.serial.boardHint].short})와 프로젝트 보드(${bn})가 다릅니다`);
+      if (kind === 'upload') await this.serial.upload(code, libs, prog, bt);
+      else await this.serial.runOnce(code, libs, prog, bt);
+      this.setStatus(kind === 'upload' ? `✔ ${bn} 업로드 완료` : `▶ ${bn} 실행 중`, 'ok');
+      if (kind === 'upload') this.toast(`${bn}에 main.py 업로드 완료 — 보드가 재시작되며 실행됩니다`, 'ok');
     } catch (e) {
       this.serialLog(`\n[오류] ${e.message}\n`, 'info');
       this.setStatus('Pico 작업 실패', 'err');
@@ -463,6 +517,7 @@ class App {
   initUI() {
     const $ = id => document.getElementById(id);
     $('btnNew').onclick = () => { if (confirm('새 프로젝트를 만들까요? (현재 작업은 자동 저장본이 덮어써집니다)')) this.newProject(); };
+    $('boardSel').onchange = e => this.switchBoard(e.target.value);
     $('btnOpen').onclick = () => this.openFile(false);
     $('btnSave').onclick = () => this.saveProject();
     $('btnSavePy').onclick = () => this.savePy();
@@ -487,7 +542,7 @@ class App {
     $('btnCtrlC').onclick = () => this.serial.write('\x03').catch(e => this.toast(e.message, 'err'));
     $('btnCtrlD').onclick = () => this.serial.write('\x04').catch(e => this.toast(e.message, 'err'));
     $('btnLs').onclick = async () => {
-      try { const out = await this.serial.listFiles(); this.serialLog('\n[Pico 파일 목록]\n' + out + '\n', 'info'); }
+      try { const out = await this.serial.listFiles(this.boardType()); this.serialLog('\n[보드 파일 목록]\n' + out + '\n', 'info'); }
       catch (e) { this.toast(e.message, 'err'); }
     };
     $('serialForm').onsubmit = e => {
@@ -516,7 +571,7 @@ class App {
     }));
 
     const dd = $('btnEx').parentElement;
-    $('exMenu').innerHTML = EXAMPLES.map((x, i) => `<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>`).join('');
+    $('exMenu').innerHTML = EXAMPLES.map((x, i) => `${x.group ? `<p class="exgrp">${esc(x.group)}</p>` : ''}<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>`).join('');
     $('btnEx').onclick = e => { e.stopPropagation(); dd.classList.toggle('open'); };
     $('exMenu').onclick = e => {
       const it = e.target.closest('[data-i]');
@@ -598,20 +653,9 @@ class App {
         d.render(n, ctx, n._view);
       }
     }
-    // Pico 핀 상태
-    const pico = this.circuit.nodes.find(n => n.type === 'pico');
-    if (pico && pico.el) {
-      if (!pico._lbl) pico._lbl = [...pico.el.querySelectorAll('.plbl[data-g]')].filter(x => x.dataset.g !== '');
-      for (const l of pico._lbl) {
-        if (!l.isConnected) { pico._lbl = null; break; }
-        const st = sim.gp[+l.dataset.g];
-        const cls = !sim.running || !st.mode ? '' : st.pwm ? 'pwm' : st.mode === 'out' ? (st.val ? 'hi' : 'lo') : 'in';
-        if (l._c !== cls) { l.classList.remove('hi', 'lo', 'pwm', 'in'); if (cls) l.classList.add(cls); l._c = cls; }
-      }
-      const led = pico._led && pico._led.isConnected ? pico._led : (pico._led = pico.el.querySelector('.obled'));
-      const on = sim.gp[25].mode === 'out' && sim.gp[25].val === 1;
-      if (led && led._on !== on) { led.classList.toggle('on', on); led._on = on; }
-    }
+    // 보드 상태 (핀 표시, 내장 LED/화면 등)
+    const bn = this.boardNode();
+    if (bn && bn.el) BOARDS[bn.type].render(bn, sim);
     this.editor.renderLive();
     const sb = document.getElementById('shortBanner');
     const sh = sim.shortNets.size > 0;

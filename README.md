@@ -1,6 +1,6 @@
 # 🍓 picoBuilder
 
-Raspberry Pi Pico용 **노드 기반 MicroPython 코드 빌더**입니다. 브라우저에서 회로를 배선하고, 프로그램을 노드로 연결해 코드를 만들고, 시뮬레이터로 실행한 뒤 실제 Pico에 업로드할 수 있습니다.
+**Raspberry Pi Pico**와 **BBC micro:bit V2**용 **노드 기반 MicroPython 코드 빌더**입니다. 브라우저에서 회로를 배선하고, 프로그램을 노드로 연결해 코드를 만들고, 시뮬레이터로 실행한 뒤 실제 보드에 업로드할 수 있습니다.
 
 **▶ 실행: https://samcho93.github.io/picoBuilder/**
 
@@ -8,14 +8,17 @@ Raspberry Pi Pico용 **노드 기반 MicroPython 코드 빌더**입니다. 브�
 
 | 기능 | 설명 |
 |---|---|
+| 보드 선택 | 상단에서 Pico 또는 micro:bit를 고릅니다. 보드를 바꿔도 모듈과 프로그램 노드는 유지되고, 생성 코드(`machine` / `microbit`)와 사용 가능한 노드가 보드에 맞게 바뀝니다. |
 | Pico 핀맵 노드 | 실제 보드의 물리 핀 배열(왼쪽 1~20, 오른쪽 21~40)을 그대로 사용합니다. GPIO, 3V3, VBUS, VSYS, GND를 포함한 모든 핀을 배선할 수 있고, 핀에 마우스를 올리면 I2C, SPI, UART, ADC, PWM 대체 기능이 표시됩니다. |
+| micro:bit 노드 | 엣지 커넥터 25핀을 실제 순서(3, 0, 4, 5, 6, 7, 1, 8 … 3V, 19, 20, GND)대로 아래쪽에 배치했습니다. 5x5 LED 화면, 버튼 A/B, 터치 로고, 가속도·나침반·온도·빛·소리 센서, 스피커를 시뮬레이션합니다. |
+| micro:bit 전용 노드 | LED 화면(표시/스크롤/아이콘/점), 버튼·제스처 이벤트, 가속도·센서 값, 스피커 음·멜로디. 이벤트는 micro:bit에 인터럽트가 없으므로 메인 루프에서 확인하는 코드로 생성됩니다. |
 | 노드 기반 프로그래밍 | 이벤트 노드(시작, 무한 반복, 타이머, 핀 인터럽트, 버튼 눌림)의 ▶ 실행 흐름에 동작 노드를 연결합니다. ● 값 포트에는 센서, 연산, 변수 노드를 연결합니다. |
 | 하드웨어 모듈 | 기본 입출력: LED, RGB LED, 버튼, 스위치, 가변저항, 조이스틱, 부저, 서보, 릴레이, WS2812<br>센서: PIR, LDR, DHT11/22, DS18B20, HC-SR04 |
 | 통신 모듈 | I2C: SSD1306 OLED, LCD1602(PCF8574), AHT20, MPU6050, BH1750, DS3231<br>SPI: MAX7219, MCP3008<br>UART: NEO-6M GPS, HC-05 |
 | 회로 → 코드 | 배선을 분석해 `I2C(0, sda=Pin(20), scl=Pin(21))` 같은 초기화 코드를 자동으로 만듭니다. 하드웨어 버스로 쓸 수 없는 핀 조합이면 SoftI2C/SoftSPI를 사용합니다. |
 | Python 에디터 | CodeMirror 기반입니다. 코드를 직접 수정할 수 있고, `.py` 파일로 저장하거나 열 수 있습니다. |
 | 시뮬레이터 | Pyodide 위에서 `machine`, `time`, `framebuf`, `neopixel`, `dht`, `onewire`, `ds18x20` 모듈을 에뮬레이션합니다. 전압과 네트를 계산해 전원 미연결이나 단락(short)을 감지하고, I2C·SPI·UART 프로토콜을 레지스터 수준으로 처리합니다. |
-| Pico 연동 | Web Serial(Chrome/Edge)로 보드에 연결합니다. `main.py`와 필요한 드라이버(`/lib/*.py`)를 업로드하거나 바로 실행할 수 있고, REPL 콘솔도 제공합니다. |
+| 보드 연동 | Web Serial(Chrome/Edge)로 Pico 또는 micro:bit에 연결합니다. `main.py`와 필요한 드라이버를 업로드하거나 바로 실행할 수 있고, REPL 콘솔도 제공합니다. micro:bit에는 `framebuf` 순수 Python 구현과 I2C/SPI 어댑터(`mbcompat.py`)를 함께 올려 OLED·LCD 등 같은 드라이버를 사용합니다. (micro:bit는 python.microbit.org 에서 MicroPython 펌웨어를 먼저 설치) |
 | 저장 | 브라우저에 자동 저장됩니다. 프로젝트는 `.pbproj.json`, 코드는 `main.py`로 저장할 수 있습니다. |
 
 ## 사용법
@@ -54,10 +57,12 @@ python -m http.server 8765
 index.html        UI 레이아웃
 css/style.css     스타일
 js/pinmap.js      Pico 물리 핀맵 / 버스 판정
+js/boards.js      보드 정의 (Pico, micro:bit V2 엣지 커넥터 · 내장 장치)
 js/devices.js     하드웨어 모듈 정의 + 프로토콜 에뮬레이터
 js/sim.js         네트 계산, GPIO 상태, pbhw 브리지
 js/nodes.js       프로그램 노드 + 그래프 → MicroPython 코드 생성
 js/pylib.js       Python 모듈 (시뮬레이터용 machine 등, 업로드용 드라이버)
+js/pylib_mb.js    micro:bit 시뮬레이터 모듈(microbit, music, radio) + mbcompat
 js/runtime.js     Pyodide 런타임
 js/serial.js      Web Serial raw REPL 업로더
 js/editor.js      노드 캔버스

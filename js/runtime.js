@@ -27,8 +27,10 @@ class Runtime {
       py.setStdout({ batched: s => this.app.log(s) });
       py.setStderr({ batched: s => this.app.log(s, 'err') });
       py.setStdin({ stdin: () => { const r = window.prompt('input() 입력:'); return r == null ? '' : r + '\n'; } });
-      py.FS.mkdirTree('/pblib');
-      for (const [name, src] of Object.entries({ ...PY_SIM, ...PY_DRIVERS })) py.FS.writeFile(`/pblib/${name}.py`, src);
+      for (const [dir, mods] of [['/pblib', { ...PY_SIM, ...PY_DRIVERS }], ['/pbpico', PY_PICO], ['/pbmb', PY_MB]]) {
+        py.FS.mkdirTree(dir);
+        for (const [name, src] of Object.entries(mods)) py.FS.writeFile(`${dir}/${name}.py`, src);
+      }
       py.registerJsModule('pbhw', makeHwApi(this.app.sim));
       py.runPython("import sys\nsys.path.insert(0, '/pblib')\nimport _pbrt, time_patch");
       this.py = py;
@@ -46,11 +48,12 @@ class Runtime {
     sim.start();
     this.running = true;
     this.app.onRunState('running');
-    this.app.log('▶ 시뮬레이션 시작 (main.py)', 'info');
+    this.app.log(`▶ 시뮬레이션 시작 (main.py · ${BOARDS[this.app.boardType()].label})`, 'info');
     let result = 'error';
     try {
       py.globals.set('__pb_src', code);
-      result = await py.runPythonAsync('await _pbrt.run(__pb_src)');
+      py.globals.set('__pb_board', this.app.boardType());
+      result = await py.runPythonAsync('await _pbrt.run(__pb_src, __pb_board)');
     } catch (e) {
       this.app.log(String(e.message || e), 'err');
     }

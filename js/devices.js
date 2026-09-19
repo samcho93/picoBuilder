@@ -47,24 +47,25 @@ function switchSetup(node, C) {
   const k = C.kind(other);
   if (k === '3v3' || k === '5v') {
     C.meta.activeLow = false;
-    return [`${node.name} = Pin(${g}, Pin.IN, Pin.PULL_DOWN)  # 누르면 1`];
+    return C.B.inp(node.name, g, 'PULL_DOWN', '누르면 1');
   }
   if (k !== 'gnd') C.warn(`${other} 핀을 GND 또는 3V3에 연결하세요`);
   C.meta.activeLow = true;
-  return [`${node.name} = Pin(${g}, Pin.IN, Pin.PULL_UP)  # 누르면 0`];
+  return C.B.inp(node.name, g, 'PULL_UP', '누르면 0');
 }
 
 function adcSetup(node, C, pin, suffix = '') {
   const g = C.gpio(pin);
-  if (g == null) return C.warn(`${pin} 핀을 ADC 핀(GP26~28)에 연결하세요`);
-  if (HW.adcChannel(g) == null) return C.warn(`GP${g}는 ADC를 지원하지 않습니다 (GP26~28 사용)`);
-  return [`${node.name}${suffix} = ADC(Pin(${g}))`];
+  if (g == null) return C.warn(`${pin} 핀을 아날로그 입력 핀에 연결하세요`);
+  if (!C.B.adcOk(g)) return C.warn(C.B.adcHint(g));
+  return [`${node.name}${suffix} = ${C.B.adc(g)}`];
 }
 
-function digitalSetup(node, C, pin, mode, suffix = '') {
+// mode: 'out' | 'in', pull: PULL_UP / PULL_DOWN / NONE
+function digitalSetup(node, C, pin, mode, suffix = '', pull = 'NONE') {
   const g = C.gpio(pin);
   if (g == null) return C.warn(`${pin} 핀을 GPIO에 연결하세요`);
-  return [`${node.name}${suffix} = Pin(${g}, ${mode})`];
+  return mode === 'out' ? [`${node.name}${suffix} = ${C.B.out(g)}`] : C.B.inp(node.name + suffix, g, pull);
 }
 
 // ---------- 오디오(부저) ----------
@@ -210,9 +211,9 @@ DEVICES.led = {
     if (gp != null) {
       if (C.kind('-') !== 'gnd') C.warn('- 핀을 GND에 연결하세요');
       C.meta.inv = false;
-      return [`${n.name} = Pin(${gp}, Pin.OUT)`];
+      return [`${n.name} = ${C.B.out(gp)}`];
     }
-    if (gm != null) { C.meta.inv = true; return [`${n.name} = Pin(${gm}, Pin.OUT)  # 싱크 방식: 0=켜짐`]; }
+    if (gm != null) { C.meta.inv = true; return [`${n.name} = ${C.B.out(gm)}  # 싱크 방식: 0=켜짐`]; }
     return C.warn('+ 핀을 GPIO에 연결하세요');
   },
 };
@@ -235,7 +236,8 @@ DEVICES.rgb = {
     for (const p of ['R', 'G', 'B']) {
       const g = C.gpio(p);
       if (g == null) { C.warn(`${p} 핀을 GPIO에 연결하세요`); continue; }
-      out.push(`${n.name}_${p.toLowerCase()} = PWM(Pin(${g}))`, `${n.name}_${p.toLowerCase()}.freq(1000)`);
+      const v = `${n.name}_${p.toLowerCase()}`;
+      out.push(`${v} = ${C.B.pwm(g)}`, ...C.B.pwmInit(v));
     }
     return out;
   },
@@ -303,7 +305,7 @@ DEVICES.joystick = {
     SW: n.st.pressed && ctx.v('GND') === 0 ? { v: 0 } : null,
   }),
   setup(n, C) {
-    return [...adcSetup(n, C, 'VRx', '_x'), ...adcSetup(n, C, 'VRy', '_y'), ...digitalSetup(n, C, 'SW', 'Pin.IN, Pin.PULL_UP', '_sw')];
+    return [...adcSetup(n, C, 'VRx', '_x'), ...adcSetup(n, C, 'VRy', '_y'), ...digitalSetup(n, C, 'SW', 'in', '_sw', 'PULL_UP')];
   },
 };
 
@@ -323,7 +325,7 @@ DEVICES.buzzer = {
   setup(n, C) {
     const g = C.gpio('+');
     if (g == null) return C.warn('+ 핀을 GPIO에 연결하세요');
-    return [`${n.name} = PWM(Pin(${g}))`, `${n.name}.duty_u16(0)`];
+    return [`${n.name} = ${C.B.pwm(g)}`, ...C.B.pwmOff(n.name)];
   },
 };
 
@@ -345,7 +347,7 @@ DEVICES.servo = {
   setup(n, C) {
     const g = C.gpio('SIG');
     if (g == null) return C.warn('SIG 핀을 GPIO에 연결하세요');
-    return [`${n.name} = PWM(Pin(${g}))`, `${n.name}.freq(50)`];
+    return [`${n.name} = ${C.B.pwm(g)}`, ...C.B.servoInit(n.name)];
   },
 };
 
@@ -358,7 +360,7 @@ DEVICES.relay = {
     const on = ctx.powered() && ctx.d('IN') === 1;
     el.querySelector('.v-relay').classList.toggle('on', on);
   },
-  setup: (n, C) => digitalSetup(n, C, 'IN', 'Pin.OUT'),
+  setup: (n, C) => digitalSetup(n, C, 'IN', 'out'),
 };
 
 // ---- PIR ----
@@ -372,7 +374,7 @@ DEVICES.pir = {
     el.querySelector('.mini').classList.toggle('on', !!n.st.motion);
   },
   outputs: (n, ctx) => ctx.powered() ? { OUT: n.st.motion ? 3.3 : 0 } : null,
-  setup: (n, C) => digitalSetup(n, C, 'OUT', 'Pin.IN'),
+  setup: (n, C) => digitalSetup(n, C, 'OUT', 'in'),
 };
 
 // ---- 조도센서 ----
@@ -395,6 +397,7 @@ for (const [type, label, prefix] of [['dht11', 'DHT11 온습도', 'dht'], ['dht2
     setup(n, C) {
       const g = C.gpio('DATA');
       if (g == null) return C.warn('DATA 핀을 GPIO에 연결하세요');
+      if (!C.B.pico) return C.warn('micro:bit MicroPython에는 dht 모듈이 없습니다 (AHT20 등 I2C 센서를 사용하세요)');
       C.imp('import dht');
       return [`${n.name} = dht.${type.toUpperCase()}(Pin(${g}))`];
     },
@@ -410,6 +413,7 @@ DEVICES.ds18b20 = {
   setup(n, C) {
     const g = C.gpio('DQ');
     if (g == null) return C.warn('DQ 핀을 GPIO에 연결하세요');
+    if (!C.B.pico) return C.warn('micro:bit MicroPython에는 onewire 모듈이 없습니다');
     C.imp('import onewire, ds18x20');
     return [`${n.name} = ds18x20.DS18X20(onewire.OneWire(Pin(${g})))`, `${n.name}_roms = ${n.name}.scan()`];
   },
@@ -432,7 +436,7 @@ DEVICES.hcsr04 = {
   },
   pulse(n, pin, level) { return pin === 'ECHO' && level === 1 ? Math.round(n.st.dist * 58.3) : null; },
   setup(n, C) {
-    return [...digitalSetup(n, C, 'TRIG', 'Pin.OUT', '_trig'), ...digitalSetup(n, C, 'ECHO', 'Pin.IN', '_echo')];
+    return [...digitalSetup(n, C, 'TRIG', 'out', '_trig'), ...digitalSetup(n, C, 'ECHO', 'in', '_echo')];
   },
 };
 
@@ -460,7 +464,7 @@ DEVICES.neopixel = {
     const g = C.gpio('DIN');
     if (g == null) return C.warn('DIN 핀을 GPIO에 연결하세요');
     C.imp('import neopixel');
-    return [`${n.name} = neopixel.NeoPixel(Pin(${g}), ${n.st.count})`];
+    return [`${n.name} = ${C.B.np(g, n.st.count)}`];
   },
 };
 
@@ -702,7 +706,7 @@ DEVICES.max7219 = {
     if (!bus) return [];
     if (cs == null) return C.warn('CS 핀을 GPIO에 연결하세요');
     C.lib('max7219', 'from max7219 import Matrix8x8');
-    return [`${n.name} = Matrix8x8(${bus}, Pin(${cs}, Pin.OUT))`];
+    return [`${n.name} = Matrix8x8(${bus}, ${C.B.pinObj(C, cs)})`];
   },
 };
 
@@ -730,7 +734,7 @@ DEVICES.mcp3008 = {
     if (!bus) return [];
     if (cs == null) return C.warn('CS 핀을 GPIO에 연결하세요');
     C.lib('mcp3008', 'from mcp3008 import MCP3008');
-    return [`${n.name} = MCP3008(${bus}, Pin(${cs}, Pin.OUT))`];
+    return [`${n.name} = MCP3008(${bus}, ${C.B.pinObj(C, cs)})`];
   },
 };
 

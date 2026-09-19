@@ -41,6 +41,7 @@ class Sim {
       n.rt = {};
       if (d && d.reset) d.reset(n);
     }
+    this.startMs = performance.now();
     this.topoDirty = true;
     this.step();
   }
@@ -54,7 +55,7 @@ class Sim {
     this.dispatcher = null;
     this.resetGpio();
     for (const n of this.circuit.nodes) {
-      const d = DEVICES[n.type];
+      const d = DEVICES[n.type] || BOARDS[n.type];
       if (d && d.stop) d.stop(n);
     }
     this.step();
@@ -85,6 +86,7 @@ class Sim {
       const d = DEVICES[n.type];
       if (d && d.closed) for (const [a, b] of d.closed(n)) union(n.id + ':' + a, n.id + ':' + b);
     }
+    this.nodeById = new Map(this.circuit.nodes.map(n => [n.id, n]));
     const idx = new Map();
     this.nets = [];
     this.netOf = new Map();
@@ -96,13 +98,13 @@ class Sim {
       this.netOf.set(t, ni);
       net.terms.push(t);
       const [nid, pin] = splitTerm(t);
-      if (nid === 'pico') {
-        const pp = PICO_PINS[pin];
+      const bn = this.nodeById.get(nid);
+      if (bn && BOARDS[bn.type]) {
+        const pp = BOARDS[bn.type].pins[pin];
         net.pico.push(pp);
         if (pp.gpio !== null) net.gpios.push(pp.gpio);
       } else net.dev.push({ nid, pin });
     }
-    this.nodeById = new Map(this.circuit.nodes.map(n => [n.id, n]));
     this.topoDirty = false;
   }
 
@@ -111,9 +113,11 @@ class Sim {
     const i = this.netOf.get(term);
     return i === undefined ? -1 : i;
   }
+  board() { return this.circuit.nodes.find(n => BOARDS[n.type]); }
   gpioNet(g) {
-    const pin = g === 25 ? null : GPIO_TO_PIN[g];
-    return pin ? this.netIndex('pico:' + pin) : -1;
+    const b = this.board();
+    const key = b && BOARDS[b.type].gpioKey(g);
+    return key ? this.netIndex(b.id + ':' + key) : -1;
   }
 
   // ---------- 전압 계산 ----------
@@ -162,7 +166,7 @@ class Sim {
       if (pass < 2) {
         devDrv = new Map();
         for (const n of this.circuit.nodes) {
-          const d = DEVICES[n.type];
+          const d = DEVICES[n.type] || BOARDS[n.type];
           if (!d || !d.outputs) continue;
           const drv = d.outputs(n, this.ctx(n));
           if (!drv) continue;
@@ -254,7 +258,7 @@ class Sim {
       const st = this.gp[g];
       const key = 'gpio' + g;
       let lv;
-      if (g === 25) lv = st.mode === 'out' ? st.val : 0;
+      if (g === 25 && this.board()?.type === 'pico') lv = st.mode === 'out' ? st.val : 0;
       else {
         const ni = this.gpioNet(g);
         lv = ni < 0 ? 0 : (this.netLevel(ni) ?? (st.pull === 'up' ? 1 : 0));
@@ -311,7 +315,7 @@ class Sim {
 function splitTerm(t) { const i = t.indexOf(':'); return [t.slice(0, i), t.slice(i + 1)]; }
 
 function nodePins(node) {
-  if (node.type === 'pico') return Object.values(PICO_PINS).map(p => ({ n: String(p.num), role: p.type }));
+  if (BOARDS[node.type]) return Object.values(BOARDS[node.type].pins).map(p => ({ n: String(p.num), role: p.type }));
   const d = DEVICES[node.type];
   return d ? d.pins : [];
 }
@@ -348,7 +352,7 @@ function makeHwApi(sim) {
     },
     pin_read(g) {
       const st = sim.gp[g];
-      if (g === 25) return st.val;
+      if (g === 25 && sim.board()?.type === 'pico') return st.val;
       sim.step();
       const ni = sim.gpioNet(g);
       const lv = ni < 0 ? null : sim.netLevel(ni);
@@ -377,6 +381,35 @@ function makeHwApi(sim) {
       const noise = (Math.random() - 0.5) * 60;
       return Math.max(0, Math.min(65535, Math.round(v / 3.3 * 65535 + noise)));
     },
+
+    adc_pin(g) {
+      sim.step();
+      const v = sim.netV(sim.gpioNet(g));
+      if (v == null) return Math.round(300 + Math.random() * 1500);
+      return Math.max(0, Math.min(65535, Math.round(v / 3.3 * 65535 + (Math.random() - 0.5) * 60)));
+    },
+
+    // ---- micro:bit 전용 ----
+    mb_display(s) { const b = sim.board(); if (b) b.rt.display = String(s); },
+    mb_presses(k, reset) {
+      const b = sim.board(); if (!b) return 0;
+      const p = b.rt.presses = b.rt.presses || { A: 0, B: 0 };
+      const v = p[k] || 0;
+      if (reset) p[k] = 0;
+      return v;
+    },
+    mb_state() {
+      const b = sim.board(); if (!b || b.type !== 'microbit') return [0, 0, -1024, 20, 0, 0, 0, 0];
+      const a = BOARDS.microbit.accel(b), s = b.st;
+      return [a[0], a[1], a[2], s.temp, s.light, s.sound, s.heading, s.logo ? 1 : 0];
+    },
+    mb_tone(g, f) {
+      const b = sim.board();
+      if (f > 0) api.pwm_set(g, f, 32768); else api.pwm_off(g);
+      if (b) b.rt.tone = f > 0 ? f : 0;
+    },
+    mb_touched(g) { sim.step(); const ni = sim.gpioNet(g); return ni >= 0 && sim.netV(ni) === 0 && sim.nets[ni].terms.length > 1; },
+    run_ms: () => performance.now() - (sim.startMs || 0),
 
     // I2C
     i2c_scan(sda, scl) {

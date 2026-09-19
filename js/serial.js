@@ -18,7 +18,7 @@ class PicoSerial {
 
   async connect() {
     if (!this.supported) throw new Error('이 브라우저는 Web Serial을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.');
-    const port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x2E8A }] }).catch(async e => {
+    const port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x2E8A }, { usbVendorId: 0x0D28 }] }).catch(async e => {
       if (e.name === 'NotFoundError') throw new Error('포트 선택이 취소되었습니다');
       throw e;
     });
@@ -26,8 +26,10 @@ class PicoSerial {
     this.port = port;
     this.writer = port.writable.getWriter();
     this.readLoop();
-    navigator.serial.addEventListener('disconnect', this._onDisc = e => { if (e.target === this.port) this.cleanup('Pico 연결이 끊어졌습니다'); });
-    this.app.serialLog('\n[Pico 연결됨]\n', 'info');
+    navigator.serial.addEventListener('disconnect', this._onDisc = e => { if (e.target === this.port) this.cleanup('보드 연결이 끊어졌습니다'); });
+    const info = port.getInfo ? port.getInfo() : {};
+    this.boardHint = info.usbVendorId === 0x0D28 ? 'microbit' : info.usbVendorId === 0x2E8A ? 'pico' : null;
+    this.app.serialLog(`\n[${this.boardHint === 'microbit' ? 'micro:bit' : 'Pico'} 연결됨]\n`, 'info');
     this.app.onSerialState(true);
   }
 
@@ -55,7 +57,7 @@ class PicoSerial {
     try { if (this.reader) await this.reader.cancel(); } catch (e) { }
     try { this.writer.releaseLock(); } catch (e) { }
     try { await this.port.close(); } catch (e) { }
-    this.cleanup('Pico 연결 해제');
+    this.cleanup('보드 연결 해제');
   }
 
   cleanup(msg) {
@@ -65,7 +67,7 @@ class PicoSerial {
   }
 
   async write(s) {
-    if (!this.port) throw new Error('Pico가 연결되지 않았습니다');
+    if (!this.port) throw new Error('보드가 연결되지 않았습니다');
     await this.writer.write(typeof s === 'string' ? this.enc.encode(s) : s);
   }
 
@@ -76,7 +78,7 @@ class PicoSerial {
     for (;;) {
       const i = this.buf.indexOf(str, from);
       if (i >= 0) return i;
-      if (Date.now() - t0 > timeout) throw new Error(`Pico 응답 시간 초과 (${JSON.stringify(str)})`);
+      if (Date.now() - t0 > timeout) throw new Error(`보드 응답 시간 초과 (${JSON.stringify(str)})`);
       await this.sleep(10);
     }
   }
@@ -111,41 +113,55 @@ class PicoSerial {
     return out;
   }
 
+  // binascii가 없는 보드(micro:bit)도 지원하도록 bytes 리터럴로 전송
   async writeFile(path, content) {
     const bytes = this.enc.encode(content);
-    await this.exec(`import binascii\nf=open('${path}','wb')\nw=f.write\na=binascii.a2b_base64`);
-    for (let i = 0; i < bytes.length; i += 600) {
-      const chunk = bytes.slice(i, i + 600);
-      let bin = ''; chunk.forEach(b => bin += String.fromCharCode(b));
-      await this.exec(`w(a('${btoa(bin)}'))`);
+    await this.exec(`f=open('${path}','wb')\nw=f.write`);
+    for (let i = 0; i < bytes.length; i += 180) {
+      const chunk = bytes.slice(i, i + 180);
+      let lit = '';
+      chunk.forEach(b => { lit += (b >= 32 && b < 127 && b !== 39 && b !== 92) ? String.fromCharCode(b) : '\\x' + b.toString(16).padStart(2, '0'); });
+      await this.exec(`w(b'${lit}')`);
     }
     await this.exec('f.close()');
   }
 
+  libPath(board, l) { return board === 'microbit' ? `${l}.py` : `/lib/${l}.py`; }
+
+  async putLibs(board, libs, progress) {
+    if (!libs.length) return;
+    if (board !== 'microbit') await this.exec("import os\ntry:\n    os.mkdir('/lib')\nexcept OSError:\n    pass");
+    for (const l of libs) {
+      progress(`라이브러리 업로드: ${this.libPath(board, l)}`);
+      await this.writeFile(this.libPath(board, l), PY_DRIVERS[l]);
+    }
+  }
+
+  async checkBoard(board, progress) {
+    const ver = (await this.exec('import sys\nprint(sys.implementation.name, sys.version, sys.platform)')).trim();
+    progress('보드: ' + ver);
+    const isMb = /microbit|nrf/i.test(ver);
+    if (board === 'microbit' && !isMb) progress('⚠ 프로젝트는 micro:bit용인데 연결된 보드는 micro:bit가 아닌 것 같습니다');
+    if (board === 'pico' && isMb) progress('⚠ 프로젝트는 Pico용인데 연결된 보드는 micro:bit입니다');
+  }
+
   async guard(fn) {
     if (this.busy) throw new Error('다른 작업이 진행 중입니다');
-    if (!this.port) throw new Error('먼저 "Pico 연결"을 눌러 보드를 연결하세요');
+    if (!this.port) throw new Error('먼저 "연결"을 눌러 보드를 연결하세요');
     this.busy = true;
     this.quiet = true;
     try { return await fn(); } finally { this.quiet = false; this.busy = false; }
   }
 
   // main.py + 필요한 라이브러리를 업로드하고 재부팅(실행)
-  async upload(code, libs, progress) {
+  async upload(code, libs, progress, board = 'pico') {
     return this.guard(async () => {
-      progress('Pico 연결 준비 (raw REPL)…');
-      await this.enterRaw();
-      const ver = await this.exec('import sys\nprint(sys.implementation.name, sys.version)');
-      progress('보드: ' + ver.trim());
-      if (libs.length) {
-        await this.exec("import os\ntry:\n    os.mkdir('/lib')\nexcept OSError:\n    pass");
-        for (const l of libs) {
-          progress(`라이브러리 업로드: /lib/${l}.py`);
-          await this.writeFile(`/lib/${l}.py`, PY_DRIVERS[l]);
-        }
-      }
+      progress('보드 연결 준비 (raw REPL)…');
+      await this.enterRaw().catch(() => { throw new Error('MicroPython REPL에 응답이 없습니다. 보드에 MicroPython 펌웨어가 설치되어 있는지 확인하세요' + (board === 'microbit' ? ' (python.microbit.org 에서 설치)' : '')); });
+      await this.checkBoard(board, progress);
+      await this.putLibs(board, libs, progress);
       progress('main.py 업로드…');
-      await this.writeFile('/main.py', code);
+      await this.writeFile(board === 'microbit' ? 'main.py' : '/main.py', code);
       progress('업로드 완료 → 소프트 리셋하여 main.py 실행');
       this.quiet = false;
       await this.exitRaw();
@@ -155,14 +171,11 @@ class PicoSerial {
   }
 
   // 파일로 저장하지 않고 즉시 실행
-  async runOnce(code, libs, progress) {
+  async runOnce(code, libs, progress, board = 'pico') {
     return this.guard(async () => {
       progress('raw REPL 진입…');
       await this.enterRaw();
-      if (libs.length) {
-        await this.exec("import os\ntry:\n    os.mkdir('/lib')\nexcept OSError:\n    pass");
-        for (const l of libs) { progress(`라이브러리 업로드: /lib/${l}.py`); await this.writeFile(`/lib/${l}.py`, PY_DRIVERS[l]); }
-      }
+      await this.putLibs(board, libs, progress);
       progress('코드 실행 중… (■ 버튼으로 중지)');
       this.quiet = false;
       const data = this.enc.encode(code);
@@ -177,9 +190,14 @@ class PicoSerial {
     await this.exitRaw();
   }
 
-  async listFiles() {
+  async listFiles(board = 'pico') {
     return this.guard(async () => {
       await this.enterRaw();
+      if (board === 'microbit') {
+        const o = await this.exec("import os\nfor n in os.listdir():\n    print(n, os.size(n))");
+        await this.exitRaw();
+        return o;
+      }
       const out = await this.exec("import os\ndef _w(p):\n    for n in os.listdir(p):\n        f=(p.rstrip('/')+'/'+n)\n        try:\n            st=os.stat(f)\n        except OSError:\n            continue\n        if st[0]&0x4000:\n            print(f+'/')\n            _w(f)\n        else:\n            print(f, st[6])\n_w('/')");
       await this.exitRaw();
       return out;
