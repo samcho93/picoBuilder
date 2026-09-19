@@ -1,0 +1,697 @@
+// 프로그램 노드 정의 + 그래프 → MicroPython 코드 생성기
+// 포트 종류: exec(실행 흐름), data(값), pin(Pico GPIO 핀 참조), dev(하드웨어 모듈 참조)
+'use strict';
+
+const PROG_CATS = [
+  ['event', '이벤트', '#f0a030'],
+  ['flow', '흐름 제어', '#e5c07b'],
+  ['gpio', 'GPIO', '#61afef'],
+  ['time', '시간', '#d19a66'],
+  ['var', '변수', '#ff79c6'],
+  ['math', '연산 / 값', '#abb2bf'],
+  ['logic', '논리 / 비교', '#7ec699'],
+  ['text', '텍스트 / 출력', '#8be9fd'],
+  ['m_io', '모듈: 입출력', '#4a9eff'],
+  ['m_sensor', '모듈: 센서', '#98c379'],
+  ['m_disp', '모듈: 디스플레이', '#c678dd'],
+  ['m_comm', '모듈: 통신/시계', '#56b6c2'],
+];
+
+const TYPE_COLORS = { number: '#98c379', bool: '#e06c75', string: '#e5a0ff', any: '#9aa4b2' };
+
+const X = (n = 'in', label = '') => ({ n, k: 'exec', label });
+const D = (n, t, def, label) => ({ n, k: 'data', t, def, label: label ?? n });
+const PIN = (label = '핀') => ({ n: 'pin', k: 'pin', label });
+const DEV = (types, label = '모듈') => ({ n: 'dev', k: 'dev', types, label });
+const OUT = (n, t, label) => ({ n, k: 'data', t, label: label ?? n });
+
+const NODES = {};
+const def = (type, spec) => { NODES[type] = spec; };
+
+const ind = (lines, n = 1) => (lines.length ? lines : ['pass']).map(l => '    '.repeat(n) + l);
+
+// ================= 이벤트 =================
+def('ev_start', { label: '시작', cat: 'event', desc: '프로그램이 시작될 때 한 번 실행합니다.', ins: [], outs: [X('out', '실행')] });
+def('ev_loop', {
+  label: '무한 반복', cat: 'event', desc: '시작 블록 실행 후 계속 반복 실행합니다 (while True).', ins: [], outs: [X('out', '반복')],
+  props: [{ k: 'delay', type: 'number', label: '주기(ms)', def: 10 }],
+});
+def('ev_timer', {
+  label: '타이머 (주기)', cat: 'event', desc: '지정한 주기(ms)마다 실행합니다 (machine.Timer).', ins: [], outs: [X('out', '실행')],
+  props: [{ k: 'period', type: 'number', label: '주기(ms)', def: 1000 }],
+});
+def('ev_pin', {
+  label: '핀 변화 (인터럽트)', cat: 'event', desc: '핀 신호가 바뀔 때 실행합니다 (Pin.irq).', ins: [PIN()], outs: [X('out', '실행')],
+  props: [
+    { k: 'edge', type: 'select', label: '조건', def: 'FALLING', opts: [['FALLING', '하강(1→0)'], ['RISING', '상승(0→1)'], ['BOTH', '양쪽']] },
+    { k: 'pull', type: 'select', label: '풀업', def: 'PULL_UP', opts: [['PULL_UP', '풀업'], ['PULL_DOWN', '풀다운'], ['NONE', '없음']] },
+  ],
+});
+def('ev_button', {
+  label: '버튼 눌림', cat: 'event', desc: '버튼 모듈이 눌렸을 때 실행합니다 (인터럽트 + 디바운스).',
+  ins: [DEV(['button', 'switch'], '버튼')], outs: [X('out', '실행')],
+});
+
+// ================= 흐름 제어 =================
+def('if', {
+  label: '만약 (if)', cat: 'flow', desc: '조건이 참이면 "참", 아니면 "거짓" 흐름을 실행한 뒤 "다음"으로 진행합니다.',
+  ins: [X(), D('cond', 'bool', true, '조건')], outs: [X('then', '참'), X('else', '거짓'), X('out', '다음')],
+  stmt(n, G) {
+    const t = G.chain(n, 'then'), e = G.chain(n, 'else');
+    const L = [`if ${G.expr(n, 'cond')}:`, ...ind(t)];
+    if (e.length) L.push('else:', ...ind(e));
+    return L;
+  },
+});
+def('repeat', {
+  label: 'N번 반복', cat: 'flow', desc: '"반복" 흐름을 N번 실행합니다. i = 0 ~ N-1',
+  ins: [X(), D('count', 'number', 10, '횟수')], outs: [X('body', '반복'), X('out', '완료'), OUT('i', 'number', 'i')],
+  stmt: (n, G) => [`for _i_${n.id} in range(int(${G.expr(n, 'count')})):`, ...ind(G.chain(n, 'body'))],
+  expr: n => `_i_${n.id}`,
+});
+def('for_range', {
+  label: '범위 반복 (for)', cat: 'flow', desc: '시작값부터 끝값 직전까지 간격만큼 증가하며 반복합니다.',
+  ins: [X(), D('from', 'number', 0, '시작'), D('to', 'number', 10, '끝'), D('step', 'number', 1, '간격')],
+  outs: [X('body', '반복'), X('out', '완료'), OUT('i', 'number', 'i')],
+  stmt: (n, G) => [`for _i_${n.id} in range(int(${G.expr(n, 'from')}), int(${G.expr(n, 'to')}), int(${G.expr(n, 'step')})):`, ...ind(G.chain(n, 'body'))],
+  expr: n => `_i_${n.id}`,
+});
+def('while', {
+  label: '조건 반복 (while)', cat: 'flow', desc: '조건이 참인 동안 반복합니다.',
+  ins: [X(), D('cond', 'bool', true, '조건')], outs: [X('body', '반복'), X('out', '완료')],
+  stmt: (n, G) => [`while ${G.expr(n, 'cond')}:`, ...ind(G.chain(n, 'body'))],
+});
+def('break', { label: '반복 중단 (break)', cat: 'flow', desc: '가장 가까운 반복문을 빠져나갑니다.', ins: [X()], outs: [], stmt: () => ['break'] });
+def('wait_until', {
+  label: '조건까지 대기', cat: 'flow', desc: '조건이 참이 될 때까지 기다립니다.',
+  ins: [X(), D('cond', 'bool', true, '조건')], outs: [X('out')],
+  stmt: (n, G) => [`while not (${G.expr(n, 'cond')}):`, '    time.sleep_ms(10)'],
+});
+
+// ================= 시간 =================
+def('wait', {
+  label: '기다리기', cat: 'time', desc: '지정한 시간(ms)만큼 기다립니다.',
+  ins: [X(), D('ms', 'number', 500, 'ms')], outs: [X('out')],
+  stmt: (n, G) => [`time.sleep_ms(int(${G.expr(n, 'ms')}))`],
+});
+def('ticks', { label: '경과 시간(ms)', cat: 'time', desc: '부팅 후 경과 시간 (time.ticks_ms)', ins: [], outs: [OUT('ms', 'number')], expr: () => 'time.ticks_ms()' });
+def('elapsed', {
+  label: '시간 차이(ms)', cat: 'time', desc: 'time.ticks_diff(현재, 이전)', ins: [D('now', 'number', 0, '현재'), D('prev', 'number', 0, '이전')], outs: [OUT('ms', 'number')],
+  expr: (n, G) => `time.ticks_diff(${G.expr(n, 'now')}, ${G.expr(n, 'prev')})`,
+});
+
+// ================= 변수 =================
+const VARPROP = { k: 'name', type: 'text', label: '이름', def: 'count' };
+def('var_set', {
+  label: '변수 설정', cat: 'var', desc: '변수에 값을 저장합니다.', ins: [X(), D('value', 'any', 0, '값')], outs: [X('out')], props: [VARPROP],
+  stmt: (n, G) => [`${G.var(n)} = ${G.expr(n, 'value')}`],
+});
+def('var_change', {
+  label: '변수 증가', cat: 'var', desc: '변수에 값을 더합니다 (음수면 감소).', ins: [X(), D('by', 'number', 1, '증가량')], outs: [X('out')], props: [VARPROP],
+  stmt: (n, G) => [`${G.var(n)} += ${G.expr(n, 'by')}`],
+});
+def('var_get', { label: '변수 값', cat: 'var', desc: '변수 값을 읽습니다.', ins: [], outs: [OUT('value', 'any', '값')], props: [VARPROP], expr: (n, G) => G.var(n) });
+
+// ================= 연산 / 값 =================
+def('num', { label: '숫자', cat: 'math', desc: '숫자 상수', ins: [], outs: [OUT('value', 'number', '값')], props: [{ k: 'v', type: 'number', label: '값', def: 0 }], expr: n => numLit(n.st.v) });
+def('str', { label: '문자열', cat: 'math', desc: '문자열 상수', ins: [], outs: [OUT('value', 'string', '값')], props: [{ k: 'v', type: 'text', label: '값', def: 'Hello' }], expr: n => pyStr(n.st.v ?? '') });
+def('bool', {
+  label: '참/거짓', cat: 'math', desc: '논리 상수', ins: [], outs: [OUT('value', 'bool', '값')],
+  props: [{ k: 'v', type: 'select', label: '값', def: 'True', opts: [['True', '참'], ['False', '거짓']] }], expr: n => n.st.v === 'False' ? 'False' : 'True',
+});
+def('math', {
+  label: '사칙연산', cat: 'math', desc: 'A (연산) B', ins: [D('a', 'number', 0, 'A'), D('b', 'number', 1, 'B')], outs: [OUT('r', 'number', '결과')],
+  props: [{ k: 'op', type: 'select', label: '연산', def: '+', opts: [['+', '+'], ['-', '−'], ['*', '×'], ['/', '÷'], ['//', '몫'], ['%', '나머지'], ['**', '거듭제곱']] }],
+  expr: (n, G) => `${G.expr(n, 'a')} ${n.st.op || '+'} ${G.expr(n, 'b')}`,
+});
+def('mathfn', {
+  label: '수학 함수', cat: 'math', desc: 'abs, round, int, sqrt, sin, cos ...', ins: [D('x', 'number', 0, 'x')], outs: [OUT('r', 'number', '결과')],
+  props: [{ k: 'fn', type: 'select', label: '함수', def: 'round', opts: [['round', 'round'], ['int', 'int'], ['abs', 'abs'], ['math.sqrt', 'sqrt'], ['math.sin', 'sin(rad)'], ['math.cos', 'cos(rad)'], ['math.floor', 'floor'], ['math.ceil', 'ceil'], ['float', 'float']] }],
+  expr(n, G) { const f = n.st.fn || 'round'; if (f.startsWith('math.')) G.imp('import math'); return `${f}(${G.expr(n, 'x')})`; },
+});
+def('map', {
+  label: '범위 변환 (map)', cat: 'math', desc: 'x를 [입력최소~최대] → [출력최소~최대]로 변환',
+  ins: [D('x', 'number', 0, 'x'), D('a', 'number', 0, '입력 최소'), D('b', 'number', 65535, '입력 최대'), D('c', 'number', 0, '출력 최소'), D('d', 'number', 100, '출력 최대')],
+  outs: [OUT('r', 'number', '결과')],
+  expr(n, G) { G.helper('map', 'def map_range(x, a, b, c, d):\n    return (x - a) * (d - c) / (b - a) + c'); return `map_range(${['x', 'a', 'b', 'c', 'd'].map(p => G.expr(n, p)).join(', ')})`; },
+});
+def('constrain', {
+  label: '범위 제한', cat: 'math', desc: 'x를 최소~최대 사이로 제한', ins: [D('x', 'number', 0, 'x'), D('lo', 'number', 0, '최소'), D('hi', 'number', 100, '최대')], outs: [OUT('r', 'number', '결과')],
+  expr: (n, G) => `max(${G.expr(n, 'lo')}, min(${G.expr(n, 'hi')}, ${G.expr(n, 'x')}))`,
+});
+def('random', {
+  label: '랜덤 정수', cat: 'math', desc: '최소~최대 사이 정수 (random.randint)', ins: [D('lo', 'number', 0, '최소'), D('hi', 'number', 100, '최대')], outs: [OUT('r', 'number', '결과')],
+  expr(n, G) { G.imp('import random'); return `random.randint(int(${G.expr(n, 'lo')}), int(${G.expr(n, 'hi')}))`; },
+});
+
+// ================= 논리 =================
+def('compare', {
+  label: '비교', cat: 'logic', desc: 'A (비교) B → 참/거짓 (숫자·문자열)', ins: [D('a', 'any', 0, 'A'), D('b', 'any', 0, 'B')], outs: [OUT('r', 'bool', '결과')],
+  props: [{ k: 'op', type: 'select', label: '비교', def: '>', opts: [['==', '='], ['!=', '≠'], ['<', '<'], ['<=', '≤'], ['>', '>'], ['>=', '≥']] }],
+  expr: (n, G) => `${G.expr(n, 'a')} ${n.st.op || '>'} ${G.expr(n, 'b')}`,
+});
+def('logic', {
+  label: '논리 연산', cat: 'logic', desc: 'A and/or B', ins: [D('a', 'bool', true, 'A'), D('b', 'bool', true, 'B')], outs: [OUT('r', 'bool', '결과')],
+  props: [{ k: 'op', type: 'select', label: '연산', def: 'and', opts: [['and', '그리고(and)'], ['or', '또는(or)']] }],
+  expr: (n, G) => `${G.expr(n, 'a')} ${n.st.op || 'and'} ${G.expr(n, 'b')}`,
+});
+def('not', { label: '부정 (not)', cat: 'logic', desc: '참↔거짓', ins: [D('a', 'bool', true, 'A')], outs: [OUT('r', 'bool', '결과')], expr: (n, G) => `not ${G.expr(n, 'a')}` });
+def('select', {
+  label: '조건 선택', cat: 'logic', desc: '조건이 참이면 A, 아니면 B', ins: [D('cond', 'bool', true, '조건'), D('a', 'any', 1, 'A'), D('b', 'any', 0, 'B')], outs: [OUT('r', 'any', '결과')],
+  expr: (n, G) => `${G.expr(n, 'a')} if ${G.expr(n, 'cond')} else ${G.expr(n, 'b')}`,
+});
+
+// ================= 텍스트 / 출력 =================
+def('print', { label: '출력 (print)', cat: 'text', desc: '시리얼 콘솔에 값을 출력합니다.', ins: [X(), D('value', 'any', 'Hello Pico!', '값')], outs: [X('out')], stmt: (n, G) => [`print(${G.expr(n, 'value')})`] });
+def('join', {
+  label: '문자열 결합', cat: 'text', desc: 'str(A) + str(B)', ins: [D('a', 'any', 'T=', 'A'), D('b', 'any', 0, 'B')], outs: [OUT('r', 'string', '결과')],
+  expr: (n, G) => `str(${G.expr(n, 'a')}) + str(${G.expr(n, 'b')})`,
+});
+def('format', {
+  label: '숫자 서식', cat: 'text', desc: '소수점 자릿수를 지정해 문자열로 변환', ins: [D('x', 'number', 0, 'x')], outs: [OUT('r', 'string', '결과')],
+  props: [{ k: 'd', type: 'number', label: '소수 자리', def: 1 }],
+  expr: (n, G) => `'{:.${Math.max(0, parseInt(n.st.d ?? 1) || 0)}f}'.format(${G.expr(n, 'x')})`,
+});
+
+// ================= GPIO =================
+def('gpio_write', {
+  label: '디지털 출력', cat: 'gpio', desc: '핀을 HIGH(1) / LOW(0)로 출력합니다.', ins: [X(), PIN(), D('value', 'bool', true, '값')], outs: [X('out')],
+  stmt: (n, G) => { const p = G.pinVar(n, 'out'); return p ? [`${p}.value(${G.expr(n, 'value')})`] : []; },
+});
+def('gpio_toggle', {
+  label: '디지털 토글', cat: 'gpio', desc: '핀 출력을 반전합니다.', ins: [X(), PIN()], outs: [X('out')],
+  stmt: (n, G) => { const p = G.pinVar(n, 'out'); return p ? [`${p}.toggle()`] : []; },
+});
+def('gpio_read', {
+  label: '디지털 입력', cat: 'gpio', desc: '핀 상태(0/1)를 읽습니다.', ins: [PIN()], outs: [OUT('value', 'bool', '값')],
+  props: [{ k: 'pull', type: 'select', label: '풀업', def: 'PULL_UP', opts: [['PULL_UP', '풀업'], ['PULL_DOWN', '풀다운'], ['NONE', '없음']] }],
+  expr: (n, G) => { const p = G.pinVar(n, 'in', n.st.pull); return p ? `${p}.value()` : '0'; },
+});
+def('pwm_write', {
+  label: 'PWM 출력', cat: 'gpio', desc: '듀티비(0~100%)와 주파수로 PWM을 출력합니다.', ins: [X(), PIN(), D('duty', 'number', 50, '듀티(%)'), D('freq', 'number', 1000, '주파수')], outs: [X('out')],
+  stmt(n, G) {
+    const p = G.pinVar(n, 'pwm');
+    if (!p) return [];
+    G.helper('pwm', 'def pwm_percent(p, duty, freq):\n    p.freq(int(freq))\n    p.duty_u16(int(max(0, min(100, duty)) * 65535 / 100))');
+    return [`pwm_percent(${p}, ${G.expr(n, 'duty')}, ${G.expr(n, 'freq')})`];
+  },
+});
+def('adc_read', {
+  label: '아날로그 입력', cat: 'gpio', desc: 'ADC 핀(GP26~28) 전압을 읽습니다.', ins: [PIN()], outs: [OUT('value', 'number', '값')],
+  props: [{ k: 'unit', type: 'select', label: '단위', def: 'raw', opts: [['raw', '0~65535'], ['pct', '0~100%'], ['volt', '전압(V)']] }],
+  expr(n, G) {
+    const p = G.pinVar(n, 'adc');
+    if (!p) return '0';
+    return n.st.unit === 'pct' ? `round(${p}.read_u16() * 100 / 65535)` : n.st.unit === 'volt' ? `round(${p}.read_u16() * 3.3 / 65535, 2)` : `${p}.read_u16()`;
+  },
+});
+def('onboard_led', {
+  label: '보드 LED', cat: 'gpio', desc: 'Pico 보드의 내장 LED (GP25)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) { G.setup('led_onboard', "led_onboard = Pin('LED', Pin.OUT)"); return [`led_onboard.value(${G.expr(n, 'value')})`]; },
+});
+def('onboard_toggle', {
+  label: '보드 LED 토글', cat: 'gpio', desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
+  stmt(n, G) { G.setup('led_onboard', "led_onboard = Pin('LED', Pin.OUT)"); return ['led_onboard.toggle()']; },
+});
+def('cpu_temp', {
+  label: '내부 온도센서', cat: 'gpio', desc: 'RP2040 내부 온도(°C, ADC4)', ins: [], outs: [OUT('t', 'number', '°C')],
+  expr(n, G) {
+    G.setup('adc_temp', 'adc_temp = ADC(4)');
+    G.helper('cpu_temp', 'def cpu_temp():\n    v = adc_temp.read_u16() * 3.3 / 65535\n    return round(27 - (v - 0.706) / 0.001721, 1)');
+    return 'cpu_temp()';
+  },
+});
+
+// ================= 모듈: 입출력 =================
+def('m_led', {
+  label: 'LED / 릴레이 켜기', cat: 'm_io', desc: 'LED 또는 릴레이 모듈을 켜고 끕니다.', ins: [X(), DEV(['led', 'relay']), D('on', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; const v = G.expr(n, 'on'); return [G.meta(d).inv ? `${d.name}.value(not ${v})` : `${d.name}.value(${v})`]; },
+});
+def('m_led_toggle', {
+  label: 'LED 토글', cat: 'm_io', desc: 'LED/릴레이 상태를 반전합니다.', ins: [X(), DEV(['led', 'relay'])], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.toggle()`] : []; },
+});
+def('m_rgb', {
+  label: 'RGB LED 색상', cat: 'm_io', desc: 'R, G, B (0~255)로 색을 설정합니다.', ins: [X(), DEV(['rgb']), D('r', 'number', 255, 'R'), D('g', 'number', 0, 'G'), D('b', 'number', 0, 'B')], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    return ['r', 'g', 'b'].map(c => `${d.name}_${c}.duty_u16(int(max(0, min(255, ${G.expr(n, c)})) * 257))`);
+  },
+});
+def('m_button', {
+  label: '버튼 눌림?', cat: 'm_io', desc: '버튼/스위치가 눌려 있으면 참', ins: [DEV(['button', 'switch'], '버튼')], outs: [OUT('pressed', 'bool', '눌림')],
+  expr(n, G) { const d = G.dev(n); if (!d) return 'False'; return `${d.name}.value() == ${G.meta(d).activeLow === false ? 1 : 0}`; },
+});
+def('m_analog', {
+  label: '가변저항/조도 값', cat: 'm_io', desc: '아날로그 모듈 값을 읽습니다.', ins: [DEV(['pot', 'ldr'])], outs: [OUT('value', 'number', '값')],
+  props: [{ k: 'unit', type: 'select', label: '단위', def: 'pct', opts: [['pct', '0~100%'], ['raw', '0~65535'], ['volt', '전압(V)']] }],
+  expr(n, G) {
+    const d = G.dev(n); if (!d) return '0';
+    return n.st.unit === 'raw' ? `${d.name}.read_u16()` : n.st.unit === 'volt' ? `round(${d.name}.read_u16() * 3.3 / 65535, 2)` : `round(${d.name}.read_u16() * 100 / 65535)`;
+  },
+});
+def('m_joystick', {
+  label: '조이스틱 읽기', cat: 'm_io', desc: 'X, Y (-100~100)와 버튼 상태', ins: [DEV(['joystick'])], outs: [OUT('x', 'number', 'X'), OUT('y', 'number', 'Y'), OUT('sw', 'bool', '버튼')],
+  expr(n, G, port) {
+    const d = G.dev(n); if (!d) return '0';
+    if (port === 'sw') return `${d.name}_sw.value() == 0`;
+    return `round(${d.name}_${port}.read_u16() * 200 / 65535 - 100)`;
+  },
+});
+def('m_buzzer', {
+  label: '부저 소리', cat: 'm_io', desc: '주파수(Hz)로 지정 시간(ms) 동안 소리를 냅니다. 시간 0 = 계속', ins: [X(), DEV(['buzzer']), D('freq', 'number', 440, '주파수'), D('ms', 'number', 200, '시간(ms)')], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    G.helper('tone', 'def tone(b, freq, ms):\n    b.freq(int(freq))\n    b.duty_u16(32768)\n    if ms > 0:\n        time.sleep_ms(int(ms))\n        b.duty_u16(0)');
+    return [`tone(${d.name}, ${G.expr(n, 'freq')}, ${G.expr(n, 'ms')})`];
+  },
+});
+def('m_buzzer_off', {
+  label: '부저 끄기', cat: 'm_io', desc: '부저 소리를 멈춥니다.', ins: [X(), DEV(['buzzer'])], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.duty_u16(0)`] : []; },
+});
+def('m_servo', {
+  label: '서보 각도', cat: 'm_io', desc: '서보 모터를 0~180°로 회전합니다.', ins: [X(), DEV(['servo']), D('angle', 'number', 90, '각도')], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    G.helper('servo', 'def servo_angle(s, angle):\n    angle = max(0, min(180, angle))\n    s.duty_ns(int(500000 + angle * 2000000 / 180))');
+    return [`servo_angle(${d.name}, ${G.expr(n, 'angle')})`];
+  },
+});
+def('m_np_fill', {
+  label: '네오픽셀 전체 색', cat: 'm_io', desc: '모든 LED를 같은 색으로 채우고 표시합니다.', ins: [X(), DEV(['neopixel']), D('r', 'number', 0, 'R'), D('g', 'number', 0, 'G'), D('b', 'number', 255, 'B')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; return [`${d.name}.fill((int(${G.expr(n, 'r')}), int(${G.expr(n, 'g')}), int(${G.expr(n, 'b')})))`, `${d.name}.write()`]; },
+});
+def('m_np_set', {
+  label: '네오픽셀 한 개 색', cat: 'm_io', desc: 'i번째 LED 색을 설정합니다 ("표시" 필요).', ins: [X(), DEV(['neopixel']), D('i', 'number', 0, '번호'), D('r', 'number', 255, 'R'), D('g', 'number', 0, 'G'), D('b', 'number', 0, 'B')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; return [`${d.name}[int(${G.expr(n, 'i')}) % ${d.name}.n] = (int(${G.expr(n, 'r')}), int(${G.expr(n, 'g')}), int(${G.expr(n, 'b')}))`]; },
+});
+def('m_np_rainbow', {
+  label: '네오픽셀 무지개', cat: 'm_io', desc: '오프셋만큼 회전한 무지개 색을 표시합니다.', ins: [X(), DEV(['neopixel']), D('off', 'number', 0, '오프셋')], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    G.helper('wheel', 'def wheel(p):\n    p = p % 255\n    if p < 85:\n        return (255 - p * 3, p * 3, 0)\n    if p < 170:\n        p -= 85\n        return (0, 255 - p * 3, p * 3)\n    p -= 170\n    return (p * 3, 0, 255 - p * 3)');
+    return [`for _k in range(${d.name}.n):`, `    ${d.name}[_k] = wheel(int(_k * 255 / ${d.name}.n + ${G.expr(n, 'off')}))`, `${d.name}.write()`];
+  },
+});
+def('m_np_show', {
+  label: '네오픽셀 표시', cat: 'm_io', desc: '설정한 색을 LED에 전송합니다 (write).', ins: [X(), DEV(['neopixel'])], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.write()`] : []; },
+});
+
+// ================= 모듈: 센서 =================
+def('m_pir', {
+  label: 'PIR 움직임?', cat: 'm_sensor', desc: '움직임이 감지되면 참', ins: [DEV(['pir'])], outs: [OUT('motion', 'bool', '감지')],
+  expr(n, G) { const d = G.dev(n); return d ? `${d.name}.value() == 1` : 'False'; },
+});
+def('m_dht', {
+  label: 'DHT 온습도', cat: 'm_sensor', desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
+  expr(n, G, port) {
+    const d = G.dev(n); if (!d) return '0';
+    G.helper('dht', "_dht_cache = {}\ndef dht_read(d):\n    now = time.ticks_ms()\n    c = _dht_cache.get(id(d))\n    if c is None or time.ticks_diff(now, c[0]) > 2000:\n        try:\n            d.measure()\n            c = (now, d.temperature(), d.humidity())\n        except OSError:\n            c = (now, c[1], c[2]) if c else (now, 0, 0)\n        _dht_cache[id(d)] = c\n    return c");
+    return `dht_read(${d.name})[${port === 't' ? 1 : 2}]`;
+  },
+});
+def('m_ds18', {
+  label: 'DS18B20 온도', cat: 'm_sensor', desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
+  expr(n, G) {
+    const d = G.dev(n); if (!d) return '0';
+    G.helper('ds18', 'def ds_temp(d, roms):\n    if not roms:\n        return None\n    d.convert_temp()\n    time.sleep_ms(750)\n    return round(d.read_temp(roms[0]), 2)');
+    return `ds_temp(${d.name}, ${d.name}_roms)`;
+  },
+});
+def('m_sonar', {
+  label: '초음파 거리(cm)', cat: 'm_sensor', desc: 'HC-SR04 거리 측정 (실패 시 -1)', ins: [DEV(['hcsr04'])], outs: [OUT('cm', 'number', '거리')],
+  expr(n, G) {
+    const d = G.dev(n); if (!d) return '0';
+    G.imp('from machine import time_pulse_us');
+    G.helper('sonar', 'def distance_cm(trig, echo):\n    trig.value(0)\n    time.sleep_us(2)\n    trig.value(1)\n    time.sleep_us(10)\n    trig.value(0)\n    t = time_pulse_us(echo, 1, 30000)\n    if t < 0:\n        return -1\n    return round(t / 58.3, 1)');
+    return `distance_cm(${d.name}_trig, ${d.name}_echo)`;
+  },
+});
+def('m_aht', {
+  label: 'AHT20 온습도', cat: 'm_sensor', desc: 'AHT20 온도(°C)와 습도(%)', ins: [DEV(['aht20'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
+  expr(n, G, port) { const d = G.dev(n); return d ? `round(${d.name}.${port === 't' ? 'temperature' : 'humidity'}(), 1)` : '0'; },
+});
+def('m_mpu', {
+  label: 'MPU6050 읽기', cat: 'm_sensor', desc: '가속도(g)와 자이로(°/s)', ins: [DEV(['mpu6050'])],
+  outs: [OUT('ax', 'number', 'AX'), OUT('ay', 'number', 'AY'), OUT('az', 'number', 'AZ'), OUT('gx', 'number', 'GX'), OUT('gy', 'number', 'GY'), OUT('gz', 'number', 'GZ')],
+  expr(n, G, port) { const d = G.dev(n); if (!d) return '0'; return `${d.name}.${port[0] === 'a' ? 'accel' : 'gyro'}()[${'xyz'.indexOf(port[1])}]`; },
+});
+def('m_lux', {
+  label: 'BH1750 조도(lx)', cat: 'm_sensor', desc: '조도 (lux)', ins: [DEV(['bh1750'])], outs: [OUT('lux', 'number', 'lux')],
+  expr(n, G) { const d = G.dev(n); return d ? `${d.name}.lux()` : '0'; },
+});
+def('m_mcp', {
+  label: 'MCP3008 읽기', cat: 'm_sensor', desc: '채널(0~7) 값 0~1023', ins: [DEV(['mcp3008']), D('ch', 'number', 0, '채널')], outs: [OUT('value', 'number', '값')],
+  expr(n, G) { const d = G.dev(n); return d ? `${d.name}.read(int(${G.expr(n, 'ch')}))` : '0'; },
+});
+
+// ================= 모듈: 디스플레이 =================
+def('m_oled_clear', {
+  label: 'OLED 지우기', cat: 'm_disp', desc: '화면 버퍼를 지웁니다.', ins: [X(), DEV(['oled'])], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.fill(0)`] : []; },
+});
+def('m_oled_text', {
+  label: 'OLED 글자', cat: 'm_disp', desc: '(x, y) 위치에 글자를 씁니다 (8x8 폰트).', ins: [X(), DEV(['oled']), D('text', 'any', 'Hello', '글자'), D('x', 'number', 0, 'x'), D('y', 'number', 0, 'y')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.text(str(${G.expr(n, 'text')}), int(${G.expr(n, 'x')}), int(${G.expr(n, 'y')}), 1)`] : []; },
+});
+def('m_oled_shape', {
+  label: 'OLED 도형', cat: 'm_disp', desc: '사각형/선/점을 그립니다.', ins: [X(), DEV(['oled']), D('x', 'number', 0, 'x'), D('y', 'number', 0, 'y'), D('w', 'number', 20, 'w / x2'), D('h', 'number', 10, 'h / y2')], outs: [X('out')],
+  props: [{ k: 'shape', type: 'select', label: '도형', def: 'rect', opts: [['rect', '사각형'], ['fill_rect', '채운 사각형'], ['line', '선'], ['pixel', '점']] }],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    const a = ['x', 'y', 'w', 'h'].map(p => `int(${G.expr(n, p)})`);
+    const s = n.st.shape || 'rect';
+    return [s === 'pixel' ? `${d.name}.pixel(${a[0]}, ${a[1]}, 1)` : `${d.name}.${s}(${a.join(', ')}, 1)`];
+  },
+});
+def('m_oled_show', {
+  label: 'OLED 표시', cat: 'm_disp', desc: '버퍼 내용을 화면에 전송합니다 (show).', ins: [X(), DEV(['oled'])], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.show()`] : []; },
+});
+def('m_lcd_print', {
+  label: 'LCD 글자', cat: 'm_disp', desc: '(열, 행) 위치에 글자를 표시합니다.', ins: [X(), DEV(['lcd']), D('text', 'any', 'Hello', '글자'), D('col', 'number', 0, '열'), D('row', 'number', 0, '행')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.move_to(int(${G.expr(n, 'col')}), int(${G.expr(n, 'row')}))`, `${d.name}.putstr(str(${G.expr(n, 'text')}))`] : []; },
+});
+def('m_lcd_clear', {
+  label: 'LCD 지우기', cat: 'm_disp', desc: '화면을 지웁니다.', ins: [X(), DEV(['lcd'])], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.clear()`] : []; },
+});
+def('m_lcd_bl', {
+  label: 'LCD 백라이트', cat: 'm_disp', desc: '백라이트 켜기/끄기', ins: [X(), DEV(['lcd']), D('on', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; return [`${d.name}.backlight_on() if ${G.expr(n, 'on')} else ${d.name}.backlight_off()`]; },
+});
+def('m_mtx_text', {
+  label: '매트릭스 글자', cat: 'm_disp', desc: '8x8 매트릭스에 한 글자를 표시합니다.', ins: [X(), DEV(['max7219']), D('text', 'any', 'A', '글자')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.fill(0)`, `${d.name}.text(str(${G.expr(n, 'text')})[:1], 0, 0, 1)`, `${d.name}.show()`] : []; },
+});
+def('m_mtx_icon', {
+  label: '매트릭스 아이콘', cat: 'm_disp', desc: '미리 정의된 아이콘을 표시합니다.', ins: [X(), DEV(['max7219'])], outs: [X('out')],
+  props: [{ k: 'icon', type: 'select', label: '아이콘', def: 'heart', opts: [['heart', '하트'], ['smile', '웃음'], ['sad', '슬픔'], ['up', '위 화살표'], ['down', '아래 화살표'], ['x', 'X'], ['check', '체크']] }],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    const I = { heart: '0066FFFFFF7E3C18', smile: '3C4281A58199423C', sad: '3C4281A599A5423C', up: '183C7EFF18181818', down: '18181818FF7E3C18', x: '8142241818244281', check: '0001030706CC7830' };
+    G.helper('mtx_icon', 'def mtx_icon(m, hexrows):\n    m.fill(0)\n    for y in range(8):\n        row = int(hexrows[y * 2:y * 2 + 2], 16)\n        for x in range(8):\n            if row & (0x80 >> x):\n                m.pixel(x, y, 1)\n    m.show()');
+    return [`mtx_icon(${d.name}, '${I[n.st.icon || 'heart']}')`];
+  },
+});
+def('m_mtx_pixel', {
+  label: '매트릭스 점', cat: 'm_disp', desc: '(x, y) 점을 켜거나 끕니다 ("표시" 필요).', ins: [X(), DEV(['max7219']), D('x', 'number', 0, 'x'), D('y', 'number', 0, 'y'), D('on', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.pixel(int(${G.expr(n, 'x')}), int(${G.expr(n, 'y')}), 1 if ${G.expr(n, 'on')} else 0)`] : []; },
+});
+def('m_mtx_show', {
+  label: '매트릭스 표시/지우기', cat: 'm_disp', desc: '버퍼를 표시하거나 지웁니다.', ins: [X(), DEV(['max7219'])], outs: [X('out')],
+  props: [{ k: 'act', type: 'select', label: '동작', def: 'show', opts: [['show', '표시'], ['clear', '지우기']] }],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; return n.st.act === 'clear' ? [`${d.name}.fill(0)`, `${d.name}.show()`] : [`${d.name}.show()`]; },
+});
+
+// ================= 모듈: 통신/시계 =================
+def('m_gps', {
+  label: 'GPS 읽기', cat: 'm_comm', desc: 'NMEA 데이터를 해석해 위치를 얻습니다.', ins: [DEV(['gps'])],
+  outs: [OUT('lat', 'number', '위도'), OUT('lon', 'number', '경도'), OUT('sats', 'number', '위성수'), OUT('fix', 'bool', '수신'), OUT('time', 'string', 'UTC')],
+  expr(n, G, port) { const d = G.dev(n); return d ? `${d.name}.poll().${port}` : '0'; },
+});
+def('m_uart_send', {
+  label: '블루투스/UART 보내기', cat: 'm_comm', desc: '문자열을 전송합니다 (줄바꿈 포함).', ins: [X(), DEV(['hc05']), D('text', 'any', 'Hello', '내용')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.write(str(${G.expr(n, 'text')}) + '\\r\\n')`] : []; },
+});
+def('m_uart_recv', {
+  label: '블루투스/UART 받기', cat: 'm_comm', desc: '수신된 한 줄(없으면 빈 문자열)과 수신 여부', ins: [DEV(['hc05'])], outs: [OUT('line', 'string', '한 줄'), OUT('has', 'bool', '수신 있음')],
+  expr(n, G, port) {
+    const d = G.dev(n); if (!d) return "''";
+    if (port === 'has') return `${d.name}.any() > 0`;
+    G.helper('readline', "def uart_line(u):\n    if not u.any():\n        return ''\n    s = u.readline()\n    if not s:\n        return ''\n    try:\n        return s.decode().strip()\n    except Exception:\n        return ''");
+    return `uart_line(${d.name})`;
+  },
+});
+def('m_rtc', {
+  label: 'RTC 시간 읽기', cat: 'm_comm', desc: 'DS3231 현재 시각', ins: [DEV(['ds3231'])],
+  outs: [OUT('text', 'string', 'HH:MM:SS'), OUT('date', 'string', 'YYYY-MM-DD'), OUT('h', 'number', '시'), OUT('m', 'number', '분'), OUT('s', 'number', '초')],
+  expr(n, G, port) {
+    const d = G.dev(n); if (!d) return '0';
+    if (port === 'text') { G.helper('rtc_text', "def rtc_text(r):\n    t = r.datetime()\n    return '{:02d}:{:02d}:{:02d}'.format(t[4], t[5], t[6])"); return `rtc_text(${d.name})`; }
+    if (port === 'date') { G.helper('rtc_date', "def rtc_date(r):\n    t = r.datetime()\n    return '{:04d}-{:02d}-{:02d}'.format(t[0], t[1], t[2])"); return `rtc_date(${d.name})`; }
+    return `${d.name}.datetime()[${{ h: 4, m: 5, s: 6 }[port]}]`;
+  },
+});
+def('m_rtc_set', {
+  label: 'RTC 시간 설정', cat: 'm_comm', desc: 'DS3231 시각을 설정합니다.', ins: [X(), DEV(['ds3231']), D('y', 'number', 2026, '년'), D('mo', 'number', 1, '월'), D('d', 'number', 1, '일'), D('h', 'number', 12, '시'), D('mi', 'number', 0, '분'), D('s', 'number', 0, '초')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; const e = p => `int(${G.expr(n, p)})`; return [`${d.name}.datetime((${e('y')}, ${e('mo')}, ${e('d')}, 1, ${e('h')}, ${e('mi')}, ${e('s')}))`]; },
+});
+
+// ================= 리터럴 도우미 =================
+function numLit(v) { const x = Number(v); return Number.isFinite(x) ? String(x) : '0'; }
+function pyStr(s) { return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n') + "'"; }
+function literal(t, v) {
+  if (t === 'number') return numLit(v);
+  if (t === 'bool') return v === false || v === 'False' || v === 0 || v === '0' ? 'False' : 'True';
+  if (t === 'string') return pyStr(v ?? '');
+  if (v === true || v === false) return v ? 'True' : 'False';
+  if (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)))) return numLit(v);
+  return pyStr(v ?? '');
+}
+const pyIdent = s => { let x = String(s || '').replace(/[^A-Za-z0-9_]/g, '_'); if (!x || /^\d/.test(x)) x = 'v_' + x; return x; };
+
+// ================= 코드 생성기 =================
+function generateCode(graph, sim) {
+  sim.invalidate();
+  sim.rebuild();
+  const byId = new Map(graph.nodes.map(n => [n.id, n]));
+  const into = new Map(), from = new Map();
+  for (const w of graph.wires) {
+    into.set(w.b, w.a);
+    if (!from.has(w.a)) from.set(w.a, []);
+    from.get(w.a).push(w.b);
+  }
+  const warnings = [];
+  const warn = (node, msg) => warnings.push({ node: node && node.id, msg: (node ? `[${node.name || NODES[node.type]?.label || node.type}] ` : '') + msg });
+  const imports = new Set(), libs = new Map(), setup = [], setupKeys = new Set(), helpers = new Map(), vars = new Set();
+  const metas = new Map();
+
+  // --- 회로 → 설정 코드 ---
+  const netGpio = term => { const i = sim.netIndex(term); if (i < 0) return null; const g = sim.nets[i].gpios; return g.length ? g[0] : null; };
+  const netKind = term => {
+    const i = sim.netIndex(term); if (i < 0) return null;
+    for (const p of sim.nets[i].pico) {
+      if (p.type === 'gnd') return 'gnd';
+      if (p.type === 'power') return '3v3';
+      if (p.type === 'power5') return '5v';
+    }
+    return null;
+  };
+  const buses = new Map(), busLines = [];
+  const devNodes = graph.nodes.filter(n => DEVICES[n.type]);
+  const catOrder = DEV_CATS.map(c => c[0]);
+  devNodes.sort((a, b) => catOrder.indexOf(DEVICES[a.type].cat) - catOrder.indexOf(DEVICES[b.type].cat));
+  for (const n of devNodes) {
+    const d = DEVICES[n.type];
+    const meta = {};
+    metas.set(n.id, meta);
+    const T = p => n.id + ':' + p;
+    const C = {
+      meta,
+      gpio: p => netGpio(T(p)),
+      kind: p => netKind(T(p)),
+      warn: m => { warn(n, m); return []; },
+      imp: s => imports.add(s),
+      lib: (name, imp) => { libs.set(name, true); imports.add(imp); },
+      i2c() {
+        const sda = C.gpio('SDA'), scl = C.gpio('SCL');
+        if (sda == null || scl == null) { C.warn('SDA/SCL 핀을 GPIO에 연결하세요'); return null; }
+        const hw = HW.i2cBus(sda, scl);
+        const key = `i2c:${sda}:${scl}`;
+        if (buses.has(key)) return buses.get(key);
+        let name;
+        if (hw != null && ![...buses.values()].includes('i2c' + hw)) {
+          name = 'i2c' + hw;
+          busLines.push(`${name} = I2C(${hw}, sda=Pin(${sda}), scl=Pin(${scl}), freq=400000)`);
+        } else {
+          name = `i2c_gp${sda}_${scl}`;
+          busLines.push(`${name} = SoftI2C(sda=Pin(${sda}), scl=Pin(${scl}), freq=100000)  # 하드웨어 I2C 핀 조합이 아님`);
+        }
+        buses.set(key, name);
+        return name;
+      },
+      spi() {
+        const s = d.spi;
+        const sck = C.gpio(s.sck), mosi = C.gpio(s.mosi), miso = s.miso ? C.gpio(s.miso) : null;
+        if (sck == null || mosi == null) { C.warn(`${s.sck}/${s.mosi} 핀을 GPIO에 연결하세요`); return null; }
+        const key = `spi:${sck}:${mosi}:${miso}`;
+        if (buses.has(key)) return buses.get(key);
+        const hw = HW.spiBus(sck, mosi, miso);
+        let name;
+        const misoArg = miso != null ? `, miso=Pin(${miso})` : '';
+        if (hw != null && ![...buses.values()].includes('spi' + hw)) {
+          name = 'spi' + hw;
+          busLines.push(`${name} = SPI(${hw}, baudrate=1000000, sck=Pin(${sck}), mosi=Pin(${mosi})${misoArg})`);
+        } else {
+          name = `spi_gp${sck}`;
+          busLines.push(`${name} = SoftSPI(baudrate=500000, sck=Pin(${sck}), mosi=Pin(${mosi})${misoArg || `, miso=Pin(${sck === 28 ? 27 : 28})`})  # 하드웨어 SPI 핀 조합이 아님`);
+        }
+        buses.set(key, name);
+        return name;
+      },
+      uart(baud) {
+        const u = d.uart;
+        const rx = C.gpio(u.tx), tx = C.gpio(u.rx);
+        if (rx == null && tx == null) { C.warn(`${u.tx}→Pico RX, ${u.rx}→Pico TX 로 연결하세요`); return null; }
+        const bus = HW.uartBus(tx, rx);
+        if (bus == null) { C.warn(`GP${tx ?? '-'}/GP${rx ?? '-'} 는 UART TX/RX 핀 조합이 아닙니다 (예: GP0=TX0, GP1=RX0 / GP4=TX1, GP5=RX1)`); return null; }
+        const name = 'uart' + bus;
+        if (!buses.has(name)) {
+          buses.set(name, name);
+          const args = [tx != null ? `tx=Pin(${tx})` : '', rx != null ? `rx=Pin(${rx})` : ''].filter(Boolean).join(', ');
+          busLines.push(`${name} = UART(${bus}, baudrate=${baud}, ${args})`);
+        }
+        return name;
+      },
+    };
+    try {
+      const lines = d.setup ? d.setup(n, C) : [];
+      if (lines && lines.length) setup.push(...lines);
+    } catch (e) { warn(n, '설정 코드 오류: ' + e.message); }
+  }
+
+  // --- 프로그램 노드 ---
+  const pinVars = new Map();
+  const depth = { v: 0 };
+  const G = {
+    warn,
+    imp: s => imports.add(s),
+    helper: (k, code) => { if (!helpers.has(k)) helpers.set(k, code); },
+    setup: (k, line) => { if (!setupKeys.has(k)) { setupKeys.add(k); setup.push(line); } },
+    meta: d => metas.get(d.id) || {},
+    var(n) { const v = pyIdent(n.st.name || 'count'); vars.add(v); return v; },
+    expr(n, port) {
+      const src = into.get(n.id + ':' + port);
+      const spec = NODES[n.type].ins.find(p => p.n === port);
+      if (src) {
+        const [sid, sp] = splitTerm(src);
+        const sn = byId.get(sid);
+        const sd = sn && NODES[sn.type];
+        if (!sd || !sd.expr) return literal(spec ? spec.t : 'any', n.st[port] ?? spec?.def);
+        if (depth.v > 60) { warn(n, '데이터 연결이 순환합니다'); return '0'; }
+        depth.v++;
+        try {
+          const e = sd.expr(sn, G, sp);
+          return /^[\w.]+(\(.*\))?(\[\d+\])?$/.test(e) && !/\s/.test(e) ? e : `(${e})`;
+        } finally { depth.v--; }
+      }
+      return literal(spec ? spec.t : 'any', n.st[port] ?? spec?.def);
+    },
+    dev(n) {
+      const src = into.get(n.id + ':dev');
+      const id = src ? splitTerm(src)[0] : n.st.dev;
+      const d = id && byId.get(id);
+      const spec = NODES[n.type].ins.find(p => p.k === 'dev');
+      if (!d || !spec.types.includes(d.type)) { warn(n, `${spec.types.map(t => DEVICES[t].label).join('/')} 모듈을 연결하세요`); return null; }
+      return d;
+    },
+    pin(n) {
+      const src = into.get(n.id + ':pin');
+      if (src) {
+        const [sid, sp] = splitTerm(src);
+        if (sid === 'pico' && PICO_PINS[sp] && PICO_PINS[sp].gpio != null) return PICO_PINS[sp].gpio;
+        warn(n, 'GPIO 핀에 연결하세요'); return null;
+      }
+      const v = n.st.pin;
+      if (v === undefined || v === '' || v === null) { warn(n, '핀을 선택하거나 Pico 핀에 연결하세요'); return null; }
+      return +v;
+    },
+    pinVar(n, mode, pull) {
+      const g = G.pin(n);
+      if (g == null) return null;
+      if (mode === 'adc' && HW.adcChannel(g) == null) { warn(n, `GP${g}는 ADC 핀이 아닙니다 (GP26~28)`); return null; }
+      const key = `${g}:${mode}`;
+      if (pinVars.has(key)) return pinVars.get(key);
+      const used = [...pinVars.keys()].some(k => k.startsWith(g + ':'));
+      const name = used ? `gp${g}_${mode}` : `gp${g}`;
+      pinVars.set(key, name);
+      const pl = pull && pull !== 'NONE' ? `, Pin.${pull}` : '';
+      setup.push(mode === 'out' ? `${name} = Pin(${g}, Pin.OUT)` : mode === 'in' ? `${name} = Pin(${g}, Pin.IN${pl})` : mode === 'pwm' ? `${name} = PWM(Pin(${g}))` : `${name} = ADC(Pin(${g}))`);
+      return name;
+    },
+    chain(n, port) {
+      const lines = [];
+      const seen = new Set();
+      let t = (from.get(n.id + ':' + port) || [])[0];
+      while (t) {
+        const [tid] = splitTerm(t);
+        const tn = byId.get(tid);
+        if (!tn || !NODES[tn.type] || !NODES[tn.type].stmt) break;
+        if (seen.has(tid) || depth.v > 40) { warn(tn, '실행 흐름이 순환합니다 (반복 노드를 사용하세요)'); break; }
+        seen.add(tid);
+        depth.v++;
+        try { lines.push(...NODES[tn.type].stmt(tn, G)); } finally { depth.v--; }
+        t = (from.get(tid + ':out') || [])[0];
+      }
+      return lines;
+    },
+  };
+
+  const byPos = (a, b) => a.y - b.y || a.x - b.x;
+  const evs = t => graph.nodes.filter(n => n.type === t).sort(byPos);
+  const handlers = [], startCode = [], loops = [];
+  const globalsLine = () => vars.size ? [`    global ${[...vars].join(', ')}`] : [];
+
+  const handlerBodies = [];
+  for (const n of evs('ev_timer')) {
+    const body = G.chain(n, 'out');
+    handlerBodies.push({ head: [`def on_timer_${n.id}(t):`], body, after: [`timer_${n.id} = Timer(period=${Math.max(1, parseInt(n.st.period) || 1000)}, mode=Timer.PERIODIC, callback=on_timer_${n.id})`] });
+  }
+  for (const n of evs('ev_pin')) {
+    const pv = G.pinVar(n, 'in', n.st.pull || 'PULL_UP');
+    const body = G.chain(n, 'out');
+    if (!pv) continue;
+    const trig = n.st.edge === 'BOTH' ? 'Pin.IRQ_FALLING | Pin.IRQ_RISING' : `Pin.IRQ_${n.st.edge || 'FALLING'}`;
+    handlerBodies.push({ head: [`def on_pin_${n.id}(p):`], body, after: [`${pv}.irq(trigger=${trig}, handler=on_pin_${n.id})`] });
+  }
+  for (const n of evs('ev_button')) {
+    const d = G.dev(n);
+    const body = G.chain(n, 'out');
+    if (!d) continue;
+    const low = G.meta(d).activeLow !== false;
+    handlerBodies.push({
+      pre: [`_last_${n.id} = 0`],
+      head: [`def on_press_${n.id}(p):`],
+      extraGlobal: `_last_${n.id}`,
+      guard: [`    if time.ticks_diff(time.ticks_ms(), _last_${n.id}) < 200:`, '        return', `    _last_${n.id} = time.ticks_ms()`],
+      body,
+      after: [`${d.name}.irq(trigger=Pin.IRQ_${low ? 'FALLING' : 'RISING'}, handler=on_press_${n.id})`],
+    });
+  }
+  for (const n of evs('ev_start')) startCode.push(...G.chain(n, 'out'));
+  const loopNodes = evs('ev_loop');
+  if (loopNodes.length > 1) warn(loopNodes[1], '무한 반복 노드는 하나만 사용할 수 있습니다 (첫 번째만 실행)');
+  if (loopNodes.length) {
+    const n = loopNodes[0];
+    const body = G.chain(n, 'out');
+    const dl = parseInt(n.st.delay ?? 10) || 0;
+    loops.push('while True:', ...ind(body.concat(dl > 0 ? [`time.sleep_ms(${dl})`] : [])));
+  }
+  for (const h of handlerBodies) {
+    const gl = [...vars, h.extraGlobal].filter(Boolean);
+    handlers.push(...(h.pre || []), ...h.head, ...(gl.length ? [`    global ${gl.join(', ')}`] : []), ...(h.guard || []), ...ind(h.body), '');
+  }
+  const afters = handlerBodies.flatMap(h => h.after);
+
+  // --- 조립 ---
+  const out = [];
+  out.push('# picoBuilder 자동 생성 코드 (MicroPython / Raspberry Pi Pico)');
+  out.push('from machine import Pin, PWM, ADC, I2C, SoftI2C, SPI, SoftSPI, UART, Timer');
+  out.push('import time');
+  const sortedImp = [...imports].sort((a, b) => (a.startsWith('from') - b.startsWith('from')) || a.localeCompare(b));
+  out.push(...sortedImp);
+  out.push('');
+  if (busLines.length || setup.length) {
+    out.push('# ---- 회로 설정 ----', ...busLines, ...setup, '');
+  }
+  if (helpers.size) out.push('# ---- 도우미 함수 ----', ...[...helpers.values()].flatMap(h => [h, '']));
+  if (vars.size) out.push('# ---- 변수 ----', ...[...vars].map(v => `${v} = 0`), '');
+  if (handlers.length) out.push('# ---- 이벤트 ----', ...handlers, ...afters, '');
+  if (startCode.length) out.push('# ---- 시작 ----', ...startCode, '');
+  if (loops.length) out.push('# ---- 무한 반복 ----', ...loops, '');
+  if (!startCode.length && !loops.length && !handlers.length) out.push('# "시작" 또는 "무한 반복" 이벤트 노드에 실행 노드를 연결하세요', '');
+  return { code: out.join('\n'), libs: [...libs.keys()], warnings };
+}

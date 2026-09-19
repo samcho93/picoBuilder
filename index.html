@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>picoBuilder</title>
+<meta name="description" content="Raspberry Pi Pico 노드 기반 MicroPython 코드 빌더 · 시뮬레이터 · 업로더">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='6' y='2' width='20' height='28' rx='3' fill='%231b7f3b'/><rect x='12' y='11' width='8' height='8' fill='%23222'/><g fill='%23e0c060'><rect x='3' y='5' width='3' height='2'/><rect x='3' y='10' width='3' height='2'/><rect x='3' y='15' width='3' height='2'/><rect x='3' y='20' width='3' height='2'/><rect x='3' y='25' width='3' height='2'/><rect x='26' y='5' width='3' height='2'/><rect x='26' y='10' width='3' height='2'/><rect x='26' y='15' width='3' height='2'/><rect x='26' y='20' width='3' height='2'/><rect x='26' y='25' width='3' height='2'/></g></svg>">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><span class="logo">🍓</span><b>pico</b>Builder</div>
+  <input id="projName" class="projname" value="새 프로젝트" spellcheck="false" title="프로젝트 이름">
+  <div class="grp">
+    <button id="btnNew" title="새 프로젝트 (Ctrl+N)">📄 새로</button>
+    <button id="btnOpen" title="프로젝트(.json) 또는 파이썬(.py) 열기 (Ctrl+O)">📂 열기</button>
+    <button id="btnSave" title="프로젝트 저장 (.json, Ctrl+S)">💾 저장</button>
+    <div class="dd">
+      <button id="btnEx">📚 예제 ▾</button>
+      <div class="ddmenu" id="exMenu"></div>
+    </div>
+  </div>
+  <div class="grp sim">
+    <span class="glbl">시뮬레이터</span>
+    <button id="btnRun" class="accent" title="시뮬레이션 실행 (F5)">▶ 실행</button>
+    <button id="btnStop" title="정지 (Shift+F5)" disabled>■ 정지</button>
+    <button id="btnMute" title="부저 소리 켜기/끄기">🔊</button>
+  </div>
+  <div class="grp pico">
+    <span class="glbl">Pico 보드</span>
+    <button id="btnConnect" title="USB로 연결된 Pico 선택 (Web Serial)">🔌 연결</button>
+    <button id="btnUpload" title="main.py와 라이브러리를 Pico에 저장하고 실행" disabled>⬆ 업로드</button>
+    <button id="btnRunPico" title="저장하지 않고 Pico에서 바로 실행" disabled>▶ 바로 실행</button>
+    <button id="btnStopPico" title="Pico 실행 중지 (Ctrl+C)" disabled>■</button>
+  </div>
+  <div class="spacer"></div>
+  <span id="status" class="status">준비</span>
+  <button id="btnHelp" title="도움말">❔</button>
+</header>
+
+<main id="main">
+  <aside id="palette">
+    <input id="palSearch" placeholder="🔍 노드 검색..." spellcheck="false">
+    <div id="palList"></div>
+  </aside>
+
+  <section id="center">
+    <div id="canvas">
+      <div class="world"><svg class="wires"></svg></div>
+    </div>
+    <div class="canvas-tools">
+      <button id="zOut" title="축소">−</button><span id="zoomLbl">85%</span><button id="zIn" title="확대">+</button>
+      <button id="zFit" title="전체 보기">⤢</button>
+    </div>
+    <div id="shortBanner" class="banner" hidden>⚠ 단락(Short) 발생! 전원과 GND 또는 서로 다른 출력이 직접 연결되었습니다.</div>
+    <div id="warnBox" class="warnbox" hidden><div class="whead">⚠ <span id="warnCount">0</span>개 경고</div><div class="wlist" id="warnList"></div></div>
+    <div class="legend">
+      <span><i class="lg exec"></i>실행 흐름</span><span><i class="lg num"></i>숫자</span><span><i class="lg bool"></i>참/거짓</span>
+      <span><i class="lg str"></i>문자열</span><span><i class="lg pin"></i>핀 참조</span><span><i class="lg dev"></i>모듈 참조</span>
+    </div>
+  </section>
+
+  <div class="splitter" id="splitR"></div>
+
+  <aside id="right">
+    <div class="tabs" id="rtabs">
+      <button data-tab="code" class="on">🐍 Python 코드</button>
+      <button data-tab="props">🛠 속성</button>
+    </div>
+    <div class="tabpane on" id="tab-code">
+      <div class="codebar">
+        <span id="codeMode" class="badge auto">노드 → 코드 자동 생성</span>
+        <button id="btnRegen" title="노드 그래프에서 코드 다시 생성">↻ 노드에서 생성</button>
+        <div class="spacer"></div>
+        <button id="btnSavePy" title="main.py 파일로 저장">💾 .py 저장</button>
+        <button id="btnOpenPy" title=".py 파일 열기">📂 .py 열기</button>
+        <button id="btnCopy" title="코드 복사">📋</button>
+      </div>
+      <div id="codeWrap"><textarea id="code"></textarea></div>
+      <div class="libbar" id="libBar"></div>
+    </div>
+    <div class="tabpane" id="tab-props"><div id="props"></div></div>
+  </aside>
+</main>
+
+<div class="splitter h" id="splitB"></div>
+<footer id="bottom">
+  <div class="tabs" id="btabs">
+    <button data-tab="sim" class="on">🖥 시뮬레이터 콘솔</button>
+    <button data-tab="serial">🔌 Pico 시리얼</button>
+    <div class="spacer"></div>
+    <button id="btnClear" title="콘솔 지우기">🧹 지우기</button>
+  </div>
+  <div class="tabpane on" id="tab-sim"><div id="simLog" class="log"></div></div>
+  <div class="tabpane" id="tab-serial">
+    <pre id="serialLog" class="log"></pre>
+    <form id="serialForm" class="serialin">
+      <input id="serialInput" placeholder="REPL 명령 입력 (예: print(1+1)) — Enter로 전송" spellcheck="false" autocomplete="off">
+      <button type="button" id="btnCtrlC" title="Ctrl+C 인터럽트">^C</button>
+      <button type="button" id="btnCtrlD" title="Ctrl+D 소프트 리셋">^D</button>
+      <button type="button" id="btnLs" title="Pico 파일 목록">📁</button>
+    </form>
+  </div>
+</footer>
+
+<input type="file" id="fileInput" accept=".json,.py,.pbproj" hidden>
+<div id="toast"></div>
+<div id="help" class="modal" hidden>
+  <div class="mbox">
+    <h2>picoBuilder 사용법</h2>
+    <ol>
+      <li><b>노드 추가</b>: 왼쪽 팔레트에서 모듈/프로그램 노드를 캔버스로 드래그(또는 클릭)합니다.</li>
+      <li><b>배선</b>: 포트(동그라미)를 끌어 다른 포트에 놓습니다. Pico의 모든 핀(전원·GND 포함)과 모듈 핀을 자유롭게 연결할 수 있습니다.
+        <br>하드웨어 배선은 실선, <span class="c-pin">핀 참조</span>·<span class="c-dev">모듈 참조</span>는 점선으로 표시됩니다.</li>
+      <li><b>프로그램</b>: <b>시작</b>/<b>무한 반복</b>/<b>타이머</b>/<b>버튼 눌림</b> 이벤트 노드의 ▶ 실행 포트에서 동작 노드를 순서대로 연결합니다.
+        값(●) 포트는 센서값·연산 노드와 연결하고, 연결하지 않으면 노드 안의 입력칸 값을 사용합니다.</li>
+      <li><b>모듈 참조(◆)</b>: 모듈 헤더의 ◆ 포트를 프로그램 노드의 "모듈" 입력에 연결하거나, 노드의 드롭다운에서 모듈을 고릅니다.</li>
+      <li><b>코드</b>: 오른쪽에 MicroPython 코드가 자동 생성됩니다. 직접 수정하면 <b>직접 편집</b> 모드가 되며, "노드에서 생성"으로 되돌릴 수 있습니다.</li>
+      <li><b>시뮬레이션</b>(F5): 브라우저 안의 Python(Pyodide)으로 코드를 실행합니다. 버튼·가변저항·센서 값을 노드에서 조작해 보세요.</li>
+      <li><b>Pico 업로드</b>: Chrome/Edge에서 "연결" → 보드 선택 → "업로드" 하면 main.py와 필요한 드라이버(/lib)가 저장되고 실행됩니다. (MicroPython 펌웨어 필요)</li>
+    </ol>
+    <p class="keys"><b>단축키</b> F5 실행 · Shift+F5 정지 · Ctrl+S 저장 · Ctrl+O 열기 · Ctrl+Z/Y 실행취소/다시실행 · Delete 삭제 · Ctrl+D 복제 · 와이어 더블클릭 삭제</p>
+    <button id="helpClose" class="accent">닫기</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+<script src="js/pinmap.js"></script>
+<script src="js/devices.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/nodes.js"></script>
+<script src="js/pylib.js"></script>
+<script src="js/runtime.js"></script>
+<script src="js/serial.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/examples.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
