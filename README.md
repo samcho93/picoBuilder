@@ -65,7 +65,7 @@ js/examples.js    예제 프로젝트
 js/app.js         앱 통합
 ```
 
-## 구조
+## Prompt
 
 해당 폴더에 웹기반의 코드빌더 제작.
 
