@@ -208,14 +208,14 @@ def('adc_read', {
   },
 });
 def('onboard_led', {
-  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2 / RP2040-Zero: GP16 RGB LED를 흰색으로)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
+  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2 / RP2040-Zero: GP16 RGB LED를 흰색으로)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
   stmt(n, G) {
     if (G.B.zero) { zeroBoardLed(G); return [`board_led(${G.expr(n, 'value')})`]; }
     G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [`led_onboard.value(${G.expr(n, 'value')})`];
   },
 });
 def('onboard_toggle', {
-  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
+  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
   stmt(n, G) {
     if (G.B.zero) { zeroBoardLed(G); return ['board_led(not _board_led_on)']; }
     G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [G.B.toggle(G, 'led_onboard')];
@@ -229,7 +229,7 @@ def('board_rgb', {
   },
 });
 def('bootsel', {
-  label: 'BOOT 버튼 눌림?', cat: 'gpio', boards: ['pico', 'rp2040zero'], desc: '보드의 BOOTSEL/BOOT 버튼 상태 (rp2.bootsel_button)', ins: [], outs: [OUT('p', 'bool', '눌림')],
+  label: 'BOOT 버튼 눌림?', cat: 'gpio', boards: ['pico', 'rp2040zero', 'nanorp2040'], desc: '보드의 BOOTSEL/BOOT 버튼 상태 (rp2.bootsel_button)', ins: [], outs: [OUT('p', 'bool', '눌림')],
   expr(n, G) { G.imp('import rp2'); return 'rp2.bootsel_button() == 1'; },
 });
 def('cpu_temp', {
@@ -332,7 +332,7 @@ def('m_pir', {
   expr(n, G) { const d = G.dev(n); return d ? `${G.B.read(d.name)} == 1` : 'False'; },
 });
 def('m_dht', {
-  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
+  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
   expr(n, G, port) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('dht', "_dht_cache = {}\ndef dht_read(d):\n    now = time.ticks_ms()\n    c = _dht_cache.get(id(d))\n    if c is None or time.ticks_diff(now, c[0]) > 2000:\n        try:\n            d.measure()\n            c = (now, d.temperature(), d.humidity())\n        except OSError:\n            c = (now, c[1], c[2]) if c else (now, 0, 0)\n        _dht_cache[id(d)] = c\n    return c");
@@ -340,7 +340,7 @@ def('m_dht', {
   },
 });
 def('m_ds18', {
-  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
+  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
   expr(n, G) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('ds18', 'def ds_temp(d, roms):\n    if not roms:\n        return None\n    d.convert_temp()\n    time.sleep_ms(750)\n    return round(d.read_temp(roms[0]), 2)');
@@ -523,7 +523,7 @@ def('mb_melody', {
 });
 
 // ================= ESP32 전용 =================
-const ESP = ['esp32'];
+const ESP = ['esp32', 'nanoesp32'];
 def('esp_wifi', {
   label: 'WiFi 연결', cat: 'esp', boards: ESP, desc: '공유기(AP)에 접속합니다 (network.WLAN). 시뮬레이터에서는 가상으로 연결됩니다.',
   ins: [X(), D('ssid', 'string', 'MyWiFi', 'SSID'), D('pw', 'string', 'password', '비밀번호')], outs: [X('out')],
@@ -542,7 +542,8 @@ def('esp_touch', {
   expr(n, G, port) {
     const g = G.pin(n);
     if (g == null) return '0';
-    if (!ESP_TOUCH.includes(g)) { G.warn(n, `GPIO${g}는 터치 핀이 아닙니다 (${ESP_TOUCH.join(', ')})`); return '0'; }
+    const touchOk = G.B.nano ? (g >= 1 && g <= 14) : ESP_TOUCH.includes(g);
+    if (!touchOk) { G.warn(n, G.B.nano ? `GPIO${g}는 터치 핀이 아닙니다 (Nano ESP32: A0~A7)` : `GPIO${g}는 터치 핀이 아닙니다 (${ESP_TOUCH.join(', ')})`); return '0'; }
     G.imp('from machine import TouchPad');
     G.setup('touch' + g, `touch${g} = TouchPad(Pin(${g}))`);
     return port === 't' ? `touch${g}.read() < 300` : `touch${g}.read()`;
@@ -657,6 +658,19 @@ DIALECTS.esp32 = {
 DIALECTS.pico.ledPin = "'LED'";
 // RP2040-Zero: Pico와 같은 RP2040 MicroPython (핀 배치/내장 LED만 다름)
 DIALECTS.rp2040zero = { ...DIALECTS.pico, zero: true };
+// Arduino Nano RP2040 Connect: RP2040 포트 + D13(GPIO6) 내장 LED
+DIALECTS.nanorp2040 = { ...DIALECTS.pico, ledPin: 6, nano: true };
+// Arduino Nano ESP32: ESP32-S3 (입력 전용 핀 없음, ADC1/2 = GPIO1~20)
+DIALECTS.nanoesp32 = {
+  ...DIALECTS.esp32,
+  nano: true,
+  ledPin: 48,
+  out: g => `Pin(${g}, Pin.OUT)`,
+  pwm: g => `PWM(Pin(${g}))`,
+  inp: (name, g, pull, cm) => DIALECTS.pico.inp(name, g, pull, cm),
+  adcOk: g => g >= 1 && g <= 20,
+  adcHint: g => `GPIO${g}는 ADC를 지원하지 않습니다 (Nano ESP32는 A0~A7 = GPIO1~14 사용)`,
+};
 
 // ================= 코드 생성기 =================
 function generateCode(graph, sim) {
@@ -724,7 +738,7 @@ function generateCode(graph, sim) {
           const used = [...buses.values()].filter(v => /^i2c\d$/.test(v)).length;
           if (used < 2) { name = 'i2c' + used; busLines.push(`${name} = I2C(${used}, scl=Pin(${scl}), sda=Pin(${sda}), freq=400000)`); }
           else { name = `i2c_gp${sda}_${scl}`; busLines.push(`${name} = SoftI2C(scl=Pin(${scl}), sda=Pin(${sda}), freq=100000)`); }
-          if (sda >= 34 || scl >= 34) C.warn('GPIO34~39는 입력 전용이라 I2C에 쓸 수 없습니다');
+          if (!B.nano && (sda >= 34 || scl >= 34)) C.warn('GPIO34~39는 입력 전용이라 I2C에 쓸 수 없습니다');
         } else {
           const hw = HW.i2cBus(sda, scl);
           if (hw != null && ![...buses.values()].includes('i2c' + hw)) {
@@ -987,7 +1001,7 @@ function generateCode(graph, sim) {
   }
   const afters = handlers.flatMap(h => h.after || []);
 
-  if (B.esp) {
+  if (B.esp && !B.nano) {
     for (const g of [1, 3]) if (usedPins.has(g)) warn(usedPins.get(g), `GPIO${g}는 USB REPL(UART0)과 공유됩니다 (UART는 TX=17, RX=16 등 다른 핀 권장)`);
     if (usedPins.has(12)) warn(usedPins.get(12), 'GPIO12는 스트래핑 핀입니다 (부팅 시 HIGH면 부팅 실패 가능)');
     const wifi = graph.nodes.some(n => n.type === 'esp_wifi');

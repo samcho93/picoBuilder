@@ -321,4 +321,79 @@ BOARDS.rp2040zero = {
   stop(n) { n.rt.rgb = null; },
 };
 
+// ---------- Arduino Nano 폼팩터 (USB 위쪽 기준: 왼쪽 D12~D1, 오른쪽 D13~VIN) ----------
+const NANO_LEFT = ['D12', 'D11', 'D10', 'D9', 'D8', 'D7', 'D6', 'D5', 'D4', 'D3', 'D2', 'GND', 'RST', 'D0', 'D1'];
+const NANO_RIGHT = ['D13', '3V3', 'AREF', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', '5V', 'RST', 'GND', 'VIN'];
+const NANO_ALT = { D0: 'RX', D1: 'TX', D10: 'CS', D11: 'COPI', D12: 'CIPO', D13: 'SCK·LED', A4: 'SDA', A5: 'SCL' };
+
+function nanoPins(map, funcOf) {
+  const pins = {};
+  const mk = (pre, list) => list.forEach((name, i) => {
+    const key = pre + (i + 1);
+    const p = { num: key, name, gpio: null, type: 'gpio', funcs: [] };
+    const g = map[name];
+    if (g != null) { p.gpio = g; p.funcs = [`${name}${NANO_ALT[name] ? ' / ' + NANO_ALT[name] : ''} = GPIO${g}`, ...funcOf(g)]; }
+    else if (name === 'GND') { p.type = 'gnd'; p.v = 0; }
+    else if (name === '3V3') { p.type = 'power'; p.v = 3.3; }
+    else if (name === '5V') { p.type = 'power5'; p.v = 5.0; }
+    else {
+      p.type = 'ctrl';
+      p.funcs = [{ RST: '리셋 (LOW = 리셋)', AREF: 'ADC 기준 전압 입력', VIN: '외부 전원 입력 (6~21V, 레귤레이터 입력)' }[name] || 'MicroPython에서 사용할 수 없는 핀'];
+    }
+    pins[key] = p;
+  });
+  mk('L', NANO_LEFT); mk('R', NANO_RIGHT);
+  return pins;
+}
+
+function nanoHtml(bd, n, title, sub, color) {
+  const tip = p => esc(`${p.name}${p.gpio != null ? ' (GPIO' + p.gpio + ')' : ''}\n${p.funcs.join(', ')}`);
+  const lbl = p => `${p.name}${NANO_ALT[p.name] ? `<small class="alt">${NANO_ALT[p.name].split('·')[0]}</small>` : ''}`;
+  const rows = [];
+  for (let i = 1; i <= 15; i++) {
+    const L = bd.pins['L' + i], R = bd.pins['R' + i];
+    rows.push(`<div class="prow">
+      <i class="port k-pin t-${L.type}" data-t="${bd.id}:${L.num}" data-s="-1" title="${tip(L)}"></i>
+      <span class="plbl t-${L.type}" data-g="${L.gpio ?? ''}">${lbl(L)}</span>
+      <span class="pmid"></span>
+      <span class="plbl r t-${R.type}" data-g="${R.gpio ?? ''}">${lbl(R)}</span>
+      <i class="port k-pin t-${R.type}" data-t="${bd.id}:${R.num}" data-s="1" title="${tip(R)}"></i>
+    </div>`);
+  }
+  return `<div class="nhead" style="--c:${color}"><span class="ico">${bd.icon}</span><span class="ttl">${title}</span><b class="nm">${sub}</b></div>
+    <div class="nano-board">
+      <div class="nano-center"><div class="usbc"></div>
+        <div class="obled amber" title="내장 LED (D13)"></div><span class="ledlbl">LED D13</span>
+        <div class="nano-chip">${sub}</div>
+      </div>
+      <div class="prows">${rows.join('')}</div>
+    </div>`;
+}
+
+BOARDS.nanorp2040 = {
+  type: 'nanorp2040', id: 'nano', label: 'Arduino Nano RP2040 Connect', short: 'Nano RP2040', icon: '🔷',
+  map: { D0: 1, D1: 0, D2: 25, D3: 15, D4: 16, D5: 17, D6: 18, D7: 19, D8: 20, D9: 21, D10: 5, D11: 7, D12: 4, D13: 6, A0: 26, A1: 27, A2: 28, A3: 29, A4: 12, A5: 13 },
+  desc: 'RP2040 · Nano 폼팩터 · MicroPython은 Pico와 동일한 RP2040 포트를 사용합니다. 핀 이름(D0~D13, A0~A5)은 내부 GPIO 번호로 변환되어 코드에 들어갑니다. A6·A7은 NINA(WiFi) 모듈에만 연결되어 MicroPython에서 쓸 수 없습니다. 내장 LED는 D13(GPIO6)입니다.',
+  ledGpio: 6,
+  html(n) { return nanoHtml(this, n, 'Nano RP2040 Connect', 'RP2040', '#00878f'); },
+  render(n, sim) { renderBoardPins(n, sim, 6); },
+};
+
+BOARDS.nanoesp32 = {
+  type: 'nanoesp32', id: 'nano', label: 'Arduino Nano ESP32', short: 'Nano ESP32', icon: '🔶',
+  map: { D0: 44, D1: 43, D2: 5, D3: 6, D4: 7, D5: 8, D6: 9, D7: 10, D8: 17, D9: 18, D10: 21, D11: 38, D12: 47, D13: 48, A0: 1, A1: 2, A2: 3, A3: 4, A4: 11, A5: 12, A6: 13, A7: 14 },
+  desc: 'ESP32-S3 · Nano 폼팩터 · WiFi/Bluetooth 내장. 핀 이름(D0~D13, A0~A7)은 ESP32-S3 GPIO 번호로 변환됩니다. A0~A7(GPIO1~14)이 아날로그 입력이며, 내장 LED는 D13(GPIO48)입니다. MicroPython 펌웨어는 Arduino Lab for MicroPython 또는 micropython.org의 ESP32-S3 빌드를 사용합니다.',
+  ledGpio: 48,
+  html(n) { return nanoHtml(this, n, 'Nano ESP32', 'ESP32-S3', '#d97706'); },
+  render(n, sim) { renderBoardPins(n, sim, 48); },
+};
+
+for (const [t, funcOf] of [['nanorp2040', gpioFunctions], ['nanoesp32', g => ESP_FUNCS[g] || (g <= 20 ? ['ADC', '터치'] : ['디지털 입출력', 'PWM'])]]) {
+  const bd = BOARDS[t];
+  bd.pins = nanoPins(bd.map, funcOf);
+  bd.gpioKey = g => Object.values(bd.pins).find(p => p.gpio === g)?.num || null;
+  bd.gpios = Object.values(bd.pins).filter(p => p.gpio != null).map(p => p.gpio).sort((a, b) => a - b);
+  bd.pinLabel = g => { const p = Object.values(bd.pins).find(x => x.gpio === g); return p ? `${p.name} (GPIO${g})` : 'GPIO' + g; };
+}
+
 const boardDef = n => n && BOARDS[n.type];

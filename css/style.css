@@ -389,3 +389,19 @@ g.w .hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: st
 .zbacklbl { font-size: 10px; color: #aac0f0; text-align: center; margin-bottom: 2px; }
 .zbackpins { display: flex; justify-content: center; gap: 1px; }
 .zbackpins .zep { width: 20px; }
+/* ---------- Arduino Nano (RP2040 Connect / ESP32) ---------- */
+.node.nanorp2040 { width: 280px; background: #0f5f66; border-color: #00878f; }
+.node.nanoesp32 { width: 280px; background: #5a3a12; border-color: #d97706; }
+.nano-board { position: relative; padding: 16px 0 10px; }
+.nano-board .prow .port { margin: 0 -6px; background: #c9a33a; border-color: #0d3b3f; }
+.nano-board .prow .port.t-gnd { background: #222; border-color: #666; }
+.nano-board .prow .port.t-power { background: #e53935; }
+.nano-board .prow .port.t-power5 { background: #ff7043; }
+.nano-board .prow .port.t-ctrl { background: #888; }
+.nano-board .plbl { width: 92px; color: #eaf6f7; }
+.nano-board .plbl small.alt { width: auto; margin-left: 4px; color: #9fc6c9; font-size: 9px; }
+.node.nanoesp32 .nano-board .plbl { color: #fdeccd; }
+.node.nanoesp32 .nano-board .plbl small.alt { color: #e2b877; }
+.nano-center { position: absolute; left: 92px; right: 92px; top: 10px; bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.nano-chip { width: 62px; height: 62px; margin-top: 12px; background: #15181b; color: #ccc; font-size: 9px; display: flex; align-items: center; justify-content: center; text-align: center; border-radius: 3px; box-shadow: inset 0 0 0 2px #333; }
+.obled.amber.on { background: #ffcf4d; box-shadow: 0 0 10px 3px #ffb300; }

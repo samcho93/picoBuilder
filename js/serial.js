@@ -19,8 +19,9 @@ class PicoSerial {
   async connect() {
     if (!this.supported) throw new Error('이 브라우저는 Web Serial을 지원하지 않습니다. Chrome 또는 Edge를 사용하세요.');
     // Pico(0x2E8A), micro:bit(0x0D28), ESP32 USB-UART: CP210x(0x10C4), CH340(0x1A86), FTDI(0x0403), ESP32-S3 내장(0x303A)
+    // Arduino(0x2341)는 Nano RP2040 Connect / Nano ESP32 공용
     const ESP_VIDS = [0x10C4, 0x1A86, 0x0403, 0x303A];
-    const port = await navigator.serial.requestPort({ filters: [0x2E8A, 0x0D28, ...ESP_VIDS].map(v => ({ usbVendorId: v })) }).catch(async e => {
+    const port = await navigator.serial.requestPort({ filters: [0x2E8A, 0x0D28, 0x2341, ...ESP_VIDS].map(v => ({ usbVendorId: v })) }).catch(async e => {
       if (e.name === 'NotFoundError') throw new Error('포트 선택이 취소되었습니다');
       throw e;
     });
@@ -149,7 +150,7 @@ class PicoSerial {
     const ver = (await this.exec('import sys\nprint(sys.implementation.name, sys.version, sys.platform)')).trim();
     progress('보드: ' + ver);
     const actual = /microbit|nrf/i.test(ver) ? 'microbit' : /esp32/i.test(ver) ? 'esp32' : /rp2/i.test(ver) ? 'pico' : null;
-    const fam = b => b === 'rp2040zero' ? 'pico' : b;
+    const fam = b => ({ rp2040zero: 'pico', nanorp2040: 'pico', nanoesp32: 'esp32' })[b] || b;
     if (actual && actual !== fam(board)) progress(`⚠ 프로젝트는 ${BOARDS[board].short}용인데 연결된 보드는 ${BOARDS[actual].short}입니다`);
   }
 

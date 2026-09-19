@@ -11,6 +11,12 @@ function buildProject(name, fn, board = 'pico') {
     _find: id => nodes.find(n => n.id === id),
     P(p) {
       if (board === 'microbit') return 'mb:' + (typeof p === 'number' ? 'P' + p : p);
+      if (board.startsWith('nano')) {
+        const pins = Object.values(BOARDS[board].pins);
+        const name = p === 'GND2' ? 'GND' : p;
+        const hit = p === 'GND2' ? pins.filter(x => x.name === 'GND')[1] : pins.find(x => x.name === name);
+        return 'nano:' + hit.num;
+      }
       if (board === 'rp2040zero') return 'zero:' + (typeof p === 'number' ? ZERO_GPIO_KEY[p] : { '5V': 'L1', GND: 'L2', '3V3': 'L3', GND2: 'L2' }[p]);
       if (board === 'esp32') return 'esp:' + (typeof p === 'number' ? ESP_GPIO_KEY[p] : { '3V3': 'L1', GND: 'R1', GND2: 'L14', GND3: 'R7', '5V': 'L19' }[p]);
       if (typeof p === 'number') return 'pico:' + p;
@@ -270,6 +276,166 @@ while True:
 
 // 예제에서 노드 입력 기본값을 지정할 때 사용
 function nodeSt(E, id) { return E._find(id).st; }
+
+// ---------------- Arduino Nano RP2040 Connect 예제 ----------------
+EXAMPLES.push(
+  {
+    group: '🔷 Arduino Nano RP2040 Connect', board: 'nanorp2040',
+    name: 'Ⓐ① 내장 LED(D13) 깜빡이기', desc: '외부 부품 없이 보드 내장 LED를 0.5초마다 토글',
+    build: () => buildProject('Nano RP2040 블링크', E => {
+      const loop = E.node('ev_loop', 800, 60, { delay: 0 });
+      const t = E.node('onboard_toggle', 980, 60);
+      const w = E.node('wait', 1160, 60);
+      E.flow(loop, t, w);
+    }, 'nanorp2040'),
+  },
+  {
+    board: 'nanorp2040',
+    name: 'Ⓐ② 버튼(D2)으로 LED(D9) 켜기', desc: 'Nano 핀 이름(D2, D9)이 RP2040 GPIO로 자동 변환됩니다',
+    build: () => buildProject('Nano RP2040 버튼 LED', E => {
+      const btn = E.dev('button', 120, 120, { flip: true });
+      const led = E.dev('led', 120, 300, { flip: true });
+      E.hw(btn, { A: 'D2', B: 'GND' });
+      E.hw(led, { '+': 'D9', '-': 'GND2' });
+      const loop = E.node('ev_loop', 820, 60);
+      const set = E.node('m_led', 1020, 60);
+      const rd = E.node('m_button', 820, 200);
+      E.flow(loop, set);
+      E.ref(led, set); E.ref(btn, rd);
+      E.data(rd + '.pressed', set + '.on');
+    }, 'nanorp2040'),
+  },
+  {
+    board: 'nanorp2040',
+    name: 'Ⓐ③ 가변저항(A0) → OLED 표시', desc: 'A0 아날로그 값을 I2C OLED(A4 SDA / A5 SCL)에 표시',
+    build: () => buildProject('Nano RP2040 A0 OLED', E => {
+      const pot = E.dev('pot', 120, 300, { flip: true });
+      const oled = E.dev('oled', 800, 60);
+      E.hw(pot, { VCC: '3V3', GND: 'GND', OUT: 'A0' });
+      E.hw(oled, { GND: 'GND2', VCC: '3V3', SDA: 'A4', SCL: 'A5' });
+      const loop = E.node('ev_loop', 1100, 40, { delay: 200 });
+      const c = E.node('m_oled_clear', 1270, 40);
+      const t1 = E.node('m_oled_text', 1440, 40);
+      const s = E.node('m_oled_show', 1640, 40);
+      E.flow(loop, c, t1, s);
+      [c, t1, s].forEach(x => E.ref(oled, x));
+      const a = E.node('m_analog', 1100, 250);
+      E.ref(pot, a);
+      const j = E.node('join', 1280, 250);
+      Object.assign(nodeSt(E, j), { a: 'A0: ' });
+      E.data(a + '.value', j + '.b');
+      E.data(j + '.r', t1 + '.text');
+      Object.assign(nodeSt(E, t1), { y: 24 });
+    }, 'nanorp2040'),
+  },
+  {
+    board: 'nanorp2040',
+    name: 'Ⓐ④ [코드] A0 값으로 LED 밝기', desc: 'Python 직접 작성: A0(ADC) 값을 D13 LED PWM 밝기로',
+    build: () => buildProject('Nano RP2040 PWM (코드)', E => {
+      const pot = E.dev('pot', 120, 300, { flip: true });
+      E.hw(pot, { VCC: '3V3', GND: 'GND', OUT: 'A0' });
+      return {
+        codeMode: 'manual', code: `from machine import Pin, ADC, PWM
+import time
+
+# Arduino Nano RP2040 Connect: A0 = GPIO26, D13(LED) = GPIO6
+pot = ADC(Pin(26))
+led = PWM(Pin(6))
+led.freq(1000)
+
+while True:
+    v = pot.read_u16()
+    led.duty_u16(v)
+    print('A0 =', v, '(', round(v * 100 / 65535), '% )')
+    time.sleep_ms(200)
+`,
+      };
+    }, 'nanorp2040'),
+  },
+);
+
+// ---------------- Arduino Nano ESP32 예제 ----------------
+EXAMPLES.push(
+  {
+    group: '🔶 Arduino Nano ESP32', board: 'nanoesp32',
+    name: 'Ⓝ① WiFi 연결 + 내장 LED', desc: 'WiFi 접속 후 D13 LED 깜빡이기 (ESP32-S3)',
+    build: () => buildProject('Nano ESP32 WiFi 블링크', E => {
+      const st = E.node('ev_start', 800, 40);
+      const wf = E.node('esp_wifi', 980, 40);
+      const loop = E.node('ev_loop', 800, 220, { delay: 0 });
+      const t = E.node('onboard_toggle', 980, 220);
+      const w = E.node('wait', 1160, 220);
+      E.flow(st, wf); E.flow(loop, t, w);
+    }, 'nanoesp32'),
+  },
+  {
+    board: 'nanoesp32',
+    name: 'Ⓝ② 가변저항(A0) → 서보(D9)', desc: 'A0(GPIO1) 아날로그 입력으로 D9 서보 제어',
+    build: () => buildProject('Nano ESP32 서보', E => {
+      const pot = E.dev('pot', 120, 120, { flip: true });
+      const sv = E.dev('servo', 120, 330, { flip: true });
+      E.hw(pot, { VCC: '3V3', GND: 'GND', OUT: 'A0' });
+      E.hw(sv, { GND: 'GND2', VCC: '5V', SIG: 'D9' });
+      const loop = E.node('ev_loop', 820, 40, { delay: 20 });
+      const m = E.node('m_servo', 1000, 40);
+      const a = E.node('m_analog', 820, 200);
+      const map = E.node('map', 1000, 200);
+      E.flow(loop, m);
+      E.ref(sv, m); E.ref(pot, a);
+      E.data(a + '.value', map + '.x');
+      Object.assign(nodeSt(E, map), { b: 100, d: 180 });
+      E.data(map + '.r', m + '.angle');
+    }, 'nanoesp32'),
+  },
+  {
+    board: 'nanoesp32',
+    name: 'Ⓝ③ 터치(A2)로 네오픽셀', desc: 'A2 터치 감지(버튼으로 손가락 흉내) 시 WS2812(D2) 켜기',
+    build: () => buildProject('Nano ESP32 터치', E => {
+      const np = E.dev('neopixel', 800, 300);
+      const btn = E.dev('button', 800, 450, { name: 'finger' });
+      E.hw(np, { DIN: 'D2', VCC: '5V', GND: 'GND2' });
+      E.hw(btn, { A: 'A2', B: 'GND' });
+      const loop = E.node('ev_loop', 1100, 40, { delay: 50 });
+      const iff = E.node('if', 1280, 40);
+      const on = E.node('m_np_fill', 1470, 0), off = E.node('m_np_fill', 1470, 230);
+      E.flow(loop, iff);
+      E.w(iff + ':then', on + ':in'); E.w(iff + ':else', off + ':in');
+      E.ref(np, on); E.ref(np, off);
+      Object.assign(nodeSt(E, on), { r: 0, g: 200, b: 60 }); Object.assign(nodeSt(E, off), { r: 0, g: 0, b: 0 });
+      const t = E.node('esp_touch', 1100, 230);
+      Object.assign(nodeSt(E, t), { pin: '3' });
+      E.data(t + '.t', iff + '.cond');
+    }, 'nanoesp32'),
+  },
+  {
+    board: 'nanoesp32',
+    name: 'Ⓝ④ [코드] WiFi 스캔 + LED', desc: 'Python 직접 작성: 주변 AP 검색 후 D13 LED 깜빡이기',
+    build: () => buildProject('Nano ESP32 WiFi 스캔 (코드)', () => ({
+      codeMode: 'manual', code: `from machine import Pin
+import network, time
+
+# Arduino Nano ESP32: D13(LED) = GPIO48, A0 = GPIO1
+led = Pin(48, Pin.OUT)
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+for ssid, bssid, ch, rssi, auth, hidden in wlan.scan():
+    print('AP:', ssid.decode(), 'ch', ch, 'rssi', rssi)
+
+wlan.connect('MyWiFi', 'password')
+while not wlan.isconnected():
+    led.value(not led.value())
+    time.sleep_ms(100)
+print('IP:', wlan.ifconfig()[0])
+
+while True:
+    led.value(1)
+    time.sleep_ms(100)
+    led.value(0)
+    time.sleep_ms(900)
+`,
+    }), 'nanoesp32'),
+  },
+);
 
 // ---------------- RP2040-Zero 예제 ----------------
 EXAMPLES.push(

@@ -343,7 +343,7 @@ class App {
         if (!conn.length) return '';
         return `<tr><td>${n.type === 'pico' ? p.num : ''}</td><td><b>${p.name}</b></td><td>${conn.map(x => `<span class="tag">${esc(this.termLabel(x))}</span>`).join('')}</td></tr>`;
       }).join('');
-      el.innerHTML = `<h3><span class="sw" style="background:${{ pico: '#1b7f3b', microbit: '#2c7be5', esp32: '#c0392b', rp2040zero: '#2e9e57' }[n.type]}"></span>${bd.icon} ${bd.label}</h3>
+      el.innerHTML = `<h3><span class="sw" style="background:${{ pico: '#1b7f3b', microbit: '#2c7be5', esp32: '#c0392b', rp2040zero: '#2e9e57', nanorp2040: '#00878f', nanoesp32: '#d97706' }[n.type]}"></span>${bd.icon} ${bd.label}</h3>
         <p class="desc">${esc(bd.desc)}</p>
         <table><tr><th>핀</th><th>이름</th><th>연결</th></tr>${rows || '<tr><td colspan=3>연결된 핀이 없습니다</td></tr>'}</table>`;
       return;
@@ -500,7 +500,7 @@ class App {
     this.switchTab('btabs', 'serial');
     try {
       const bt = this.boardType(), bn = BOARDS[bt].short;
-      const fam = b => b === 'rp2040zero' ? 'pico' : b;
+      const fam = b => ({ rp2040zero: 'pico', nanorp2040: 'pico', nanoesp32: 'esp32' })[b] || b;
       if (this.serial.boardHint && fam(this.serial.boardHint) !== fam(bt)) prog(`⚠ 연결된 보드(${BOARDS[this.serial.boardHint].short})와 프로젝트 보드(${bn})가 다릅니다`);
       if (kind === 'upload') await this.serial.upload(code, libs, prog, bt);
       else await this.serial.runOnce(code, libs, prog, bt);
@@ -574,8 +574,9 @@ class App {
     const dd = $('btnEx').parentElement;
     // 예제 메뉴: 보드별 탭 + 스크롤 목록 (현재 보드 탭이 기본)
     const exBoard = x => x.board || (/^Ⓜ/.test(x.name) ? 'microbit' : /^Ⓔ/.test(x.name) ? 'esp32' : /^Ⓩ/.test(x.name) ? 'rp2040zero' : 'pico');
+    const exTabs = ['pico', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'microbit', 'esp32'];
     const renderEx = bt => {
-      $('exMenu').innerHTML = `<div class="extabs">${Object.values(BOARDS).map(b => `<button data-exb="${b.type}" class="${b.type === bt ? 'on' : ''}">${b.icon} ${esc(b.short)} <em>${EXAMPLES.filter(x => exBoard(x) === b.type).length}</em></button>`).join('')}</div>
+      $('exMenu').innerHTML = `<div class="extabs">${exTabs.map(t => BOARDS[t]).map(b => `<button data-exb="${b.type}" class="${b.type === bt ? 'on' : ''}">${b.icon} ${esc(b.short)} <em>${EXAMPLES.filter(x => exBoard(x) === b.type).length}</em></button>`).join('')}</div>
         <div class="exlist">${EXAMPLES.map((x, i) => exBoard(x) === bt ? `<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>` : '').join('')}</div>`;
     };
     $('btnEx').onclick = e => { e.stopPropagation(); if (!dd.classList.contains('open')) renderEx(this.boardType()); dd.classList.toggle('open'); };

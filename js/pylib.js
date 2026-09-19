@@ -743,7 +743,7 @@ async def run(src, board='pico'):
     for p in ('/pbpico', '/pbmb', '/pbesp'):
         while p in sys.path:
             sys.path.remove(p)
-    sys.path.insert(0, {'microbit': '/pbmb', 'esp32': '/pbesp'}.get(board, '/pbpico'))
+    sys.path.insert(0, {'microbit': '/pbmb', 'esp32': '/pbesp', 'nanoesp32': '/pbesp'}.get(board, '/pbpico'))
     if board == 'microbit':
         import microbit  # noqa: 화면 초기화
     else:
@@ -853,9 +853,12 @@ PY_SIM.machine = String.raw`# machine 모듈 에뮬레이션 (Raspberry Pi Pico 
 import pbhw, time, _pbrt
 from pyodide.ffi import create_proxy
 
-_ESP = pbhw.board_type() == 'esp32'
-_ESP_GPIO = set(range(40)) - {20, 24, 28, 29, 30, 31}
-_ESP_ADC = (32, 33, 34, 35, 36, 39, 0, 2, 4, 12, 13, 14, 15, 25, 26, 27)
+_BOARD = pbhw.board_type()
+_S3 = _BOARD == 'nanoesp32'           # Arduino Nano ESP32 (ESP32-S3)
+_ESP = _BOARD == 'esp32' or _S3
+_ESP_GPIO = (set(range(22)) | set(range(26, 49))) if _S3 else set(range(40)) - {20, 24, 28, 29, 30, 31}
+_ESP_ADC = tuple(range(1, 21)) if _S3 else (32, 33, 34, 35, 36, 39, 0, 2, 4, 12, 13, 14, 15, 25, 26, 27)
+_ESP_TOUCH = tuple(range(1, 15)) if _S3 else (0, 2, 4, 12, 13, 14, 15, 27, 32, 33)
 _irq = {}
 _timers = {}
 
@@ -883,7 +886,7 @@ def _gid(p):
         return p._id
     if isinstance(p, str):
         if p == 'LED':
-            return 2 if _ESP else 25
+            return 48 if _S3 else (2 if _ESP else 25)
         if not _ESP and p in ('WL_GPIO0', 'GP25', 'GPIO25'):
             return 25
         s = p.upper().replace('GPIO', '').replace('GP', '')
@@ -918,7 +921,7 @@ class Pin:
     def init(self, mode=-1, pull=-1, *args, value=None, **kw):
         if mode is None:
             mode = -1
-        if _ESP and self._id >= 34:
+        if _ESP and not _S3 and self._id >= 34:
             if mode in (1, 2):
                 raise ValueError('pin can only be input')
             pull = 0 if pull not in (-1, None) else pull
@@ -1075,7 +1078,7 @@ class ADC:
 class TouchPad:
     def __init__(self, pin):
         self._g = _gid(pin)
-        if self._g not in (0, 2, 4, 12, 13, 14, 15, 27, 32, 33):
+        if self._g not in _ESP_TOUCH:
             raise ValueError('Touch pad error')
 
     def read(self):

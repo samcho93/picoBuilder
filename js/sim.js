@@ -26,7 +26,7 @@ class Sim {
 
   resetGpio() {
     this.gp = {};
-    for (let g = 0; g <= 39; g++) this.gp[g] = { mode: null, val: 0, pull: null, pwm: null, irq: 0 };
+    for (let g = 0; g <= 48; g++) this.gp[g] = { mode: null, val: 0, pull: null, pwm: null, irq: 0 };
   }
 
   // ---------- 실행 제어 ----------
@@ -254,7 +254,7 @@ class Sim {
         if (prev !== undefined && prev !== lv && lv !== null) d.onEdge(n, p.n, lv, ctx);
       }
     }
-    for (let g = 0; g <= 39; g++) {
+    for (let g = 0; g <= 48; g++) {
       const st = this.gp[g];
       const key = 'gpio' + g;
       let lv;
