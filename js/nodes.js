@@ -208,14 +208,14 @@ def('adc_read', {
   },
 });
 def('onboard_led', {
-  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2 / RP2040-Zero: GP16 RGB LED를 흰색으로)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
+  label: '보드 LED', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'unor3', 'nano328'], desc: '보드 내장 LED (Pico: GP25 / ESP32: GPIO2 / RP2040-Zero: GP16 RGB LED를 흰색으로)', ins: [X(), D('value', 'bool', true, '켜기')], outs: [X('out')],
   stmt(n, G) {
     if (G.B.zero) { zeroBoardLed(G); return [`board_led(${G.expr(n, 'value')})`]; }
     G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [`led_onboard.value(${G.expr(n, 'value')})`];
   },
 });
 def('onboard_toggle', {
-  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
+  label: '보드 LED 토글', cat: 'gpio', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'unor3', 'nano328'], desc: '내장 LED 반전', ins: [X()], outs: [X('out')],
   stmt(n, G) {
     if (G.B.zero) { zeroBoardLed(G); return ['board_led(not _board_led_on)']; }
     G.setup('led_onboard', `led_onboard = Pin(${G.B.ledPin}, Pin.OUT)`); return [G.B.toggle(G, 'led_onboard')];
@@ -332,7 +332,7 @@ def('m_pir', {
   expr(n, G) { const d = G.dev(n); return d ? `${G.B.read(d.name)} == 1` : 'False'; },
 });
 def('m_dht', {
-  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
+  label: 'DHT 온습도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'unor3', 'nano328'], desc: 'DHT11/22 온도(°C)와 습도(%) (2초 캐시)', ins: [DEV(['dht11', 'dht22'])], outs: [OUT('t', 'number', '온도'), OUT('h', 'number', '습도')],
   expr(n, G, port) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('dht', "_dht_cache = {}\ndef dht_read(d):\n    now = time.ticks_ms()\n    c = _dht_cache.get(id(d))\n    if c is None or time.ticks_diff(now, c[0]) > 2000:\n        try:\n            d.measure()\n            c = (now, d.temperature(), d.humidity())\n        except OSError:\n            c = (now, c[1], c[2]) if c else (now, 0, 0)\n        _dht_cache[id(d)] = c\n    return c");
@@ -340,7 +340,7 @@ def('m_dht', {
   },
 });
 def('m_ds18', {
-  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
+  label: 'DS18B20 온도', cat: 'm_sensor', boards: ['pico', 'esp32', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'unor3', 'nano328'], desc: '1-Wire 온도(°C)', ins: [DEV(['ds18b20'])], outs: [OUT('t', 'number', '온도')],
   expr(n, G) {
     const d = G.dev(n); if (!d) return '0';
     G.helper('ds18', 'def ds_temp(d, roms):\n    if not roms:\n        return None\n    d.convert_temp()\n    time.sleep_ms(750)\n    return round(d.read_temp(roms[0]), 2)');
@@ -411,7 +411,7 @@ def('m_lcd_bl', {
   stmt(n, G) { const d = G.dev(n); if (!d) return []; return [`${d.name}.backlight_on() if ${G.expr(n, 'on')} else ${d.name}.backlight_off()`]; },
 });
 def('m_mtx_text', {
-  label: '매트릭스 글자', cat: 'm_disp', desc: '8x8 매트릭스에 한 글자를 표시합니다.', ins: [X(), DEV(['max7219']), D('text', 'any', 'A', '글자')], outs: [X('out')],
+  label: '매트릭스 글자', cat: 'm_disp', boards: ['pico', 'rp2040zero', 'nanorp2040', 'microbit', 'esp32', 'nanoesp32'], desc: '8x8 매트릭스에 한 글자를 표시합니다.', ins: [X(), DEV(['max7219']), D('text', 'any', 'A', '글자')], outs: [X('out')],
   stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}.fill(0)`, `${d.name}.text(str(${G.expr(n, 'text')})[:1], 0, 0, 1)`, `${d.name}.show()`] : []; },
 });
 def('m_mtx_icon', {
@@ -658,6 +658,20 @@ DIALECTS.esp32 = {
 DIALECTS.pico.ledPin = "'LED'";
 // RP2040-Zero: Pico와 같은 RP2040 MicroPython (핀 배치/내장 LED만 다름)
 DIALECTS.rp2040zero = { ...DIALECTS.pico, zero: true };
+// 구형 Arduino(ATmega328P)는 MicroPython이 없으므로, 아래 방언은 "시뮬레이터 전용" 파이썬 코드에만 사용합니다.
+// 사용자에게 보여주는 코드는 js/arduino.js 가 Arduino C++로 생성합니다.
+const AVR_SIM_DIALECT = {
+  ...DIALECTS.esp32,
+  esp: true, nano: true, cpp: true, ledPin: 13,
+  out: g => `Pin(${g}, Pin.OUT)`,
+  pwm: g => `PWM(Pin(${g}))`,
+  inp: (name, g, pull, cm) => DIALECTS.pico.inp(name, g, pull, cm),
+  adc: g => `ADC(Pin(${g}))`,
+  adcOk: g => g >= 14 && g <= 21,
+  adcHint: g => `아날로그 입력은 A0~A7 핀만 가능합니다`,
+};
+DIALECTS.unor3 = { ...AVR_SIM_DIALECT };
+DIALECTS.nano328 = { ...AVR_SIM_DIALECT };
 // Arduino Nano RP2040 Connect: RP2040 포트 + D13(GPIO6) 내장 LED
 DIALECTS.nanorp2040 = { ...DIALECTS.pico, ledPin: 6, nano: true };
 // Arduino Nano ESP32: ESP32-S3 (입력 전용 핀 없음, ADC1/2 = GPIO1~20)
@@ -1037,5 +1051,15 @@ function generateCode(graph, sim) {
   // 업로드에 필요한 라이브러리 (micro:bit는 framebuf 미내장)
   const libList = [...libs.keys()];
   if (!B.pico && libList.some(l => l === 'ssd1306' || l === 'max7219')) libList.push('framebuf');
-  return { code: out.join('\n'), libs: libList, warnings, board: btype };
+  const python = out.join('\n');
+  // 구형 Arduino: 화면에는 C++ 코드를, 시뮬레이터에는 위에서 만든 파이썬 코드를 사용
+  if (bdef.lang === 'cpp') {
+    let cpp;
+    try { cpp = generateArduino(graph, sim); }
+    catch (e) { console.error(e); cpp = { code: '// 코드 생성 오류: ' + e.message, libs: [], warnings: [{ msg: 'C++ 코드 생성 오류: ' + e.message }] }; }
+    const seen = new Set(cpp.warnings.map(w => w.msg));
+    const merged = cpp.warnings.concat(warnings.filter(w => !seen.has(w.msg)));
+    return { code: cpp.code, simCode: python, libs: cpp.libs, warnings: merged, board: btype, lang: 'cpp' };
+  }
+  return { code: python, libs: libList, warnings, board: btype, lang: 'python' };
 }

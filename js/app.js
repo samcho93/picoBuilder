@@ -66,8 +66,22 @@ class App {
     const t = this.boardType();
     document.getElementById('boardSel').value = t;
     document.body.dataset.board = t;
+    document.body.dataset.lang = this.lang();
     this.filterPalette();
+    if (this.cm) this.cm.setOption('mode', this.lang() === 'cpp' ? 'text/x-c++src' : 'python');
+    const cpp = this.lang() === 'cpp';
+    document.getElementById('btnSavePy').textContent = cpp ? '💾 .ino 저장' : '💾 .py 저장';
+    document.querySelector('#rtabs [data-tab=code]').textContent = cpp ? '🅰 Arduino 코드' : '🐍 Python 코드';
+    document.getElementById('btnOpenPy').style.display = cpp ? 'none' : '';
+    for (const id of ['btnUpload', 'btnRunPico']) {
+      const b = document.getElementById(id);
+      b.dataset.cpp = cpp ? '1' : '';
+      b.title = cpp ? '구형 Arduino는 브라우저에서 컴파일할 수 없습니다 — 코드를 복사해 Arduino IDE에서 업로드하세요' : b.title;
+    }
+    this.onSerialState(this.serial.connected);
   }
+
+  lang() { return BOARDS[this.boardType()].lang || 'python'; }
 
   // ---------- 프로젝트 ----------
   serialize() {
@@ -188,12 +202,12 @@ class App {
     b.textContent = m === 'auto' ? '노드 → 코드 자동 생성' : '✎ 직접 편집 중 (노드 동기화 해제)';
   }
 
-  regen(force) {
+  regen(opt) {
     let res;
     try { res = generateCode(this.circuit, this.sim); }
     catch (e) { console.error(e); res = { code: '# 코드 생성 오류: ' + e.message, libs: [], warnings: [{ msg: e.message }] }; }
     this.lastGen = res;
-    if (this.codeMode === 'auto') {
+    if (this.codeMode === 'auto' && !(opt && opt.keepManual && this.codeMode === 'manual')) {
       const cur = this.cm.getValue();
       if (cur !== res.code) {
         const sc = this.cm.getScrollInfo();
@@ -217,9 +231,16 @@ class App {
   }
 
   updateLibBar() {
+    const bar = document.getElementById('libBar');
+    if (this.lang() === 'cpp') {
+      const libs = this.lastGen.libs || [];
+      bar.innerHTML = '📋 코드를 복사해 Arduino IDE에 붙여넣고 업로드하세요. '
+        + (libs.length ? `필요한 라이브러리(라이브러리 매니저에서 설치): ${libs.map(l => `<code>${esc(l)}</code>`).join(' ')}` : '추가 라이브러리 없이 동작합니다.');
+      return;
+    }
     const libs = this.neededLibs();
     const mb = this.boardType() === 'microbit';
-    document.getElementById('libBar').innerHTML = libs.length
+    bar.innerHTML = libs.length
       ? `업로드 시 함께 전송되는 드라이버: ${libs.map(l => `<code>${mb ? '' : '/lib/'}${l}.py</code>`).join(' ')}`
       : 'MicroPython 내장 모듈만 사용합니다.';
   }
@@ -434,7 +455,8 @@ class App {
   }
   onSerialState(on) {
     document.getElementById('btnConnect').textContent = on ? '⏏ 연결 해제' : '🔌 연결';
-    ['btnUpload', 'btnRunPico', 'btnStopPico'].forEach(id => document.getElementById(id).disabled = !on);
+    const cpp = this.lang() === 'cpp';
+    ['btnUpload', 'btnRunPico', 'btnStopPico'].forEach(id => document.getElementById(id).disabled = !on || (cpp && id !== 'btnStopPico'));
     if (on) this.switchTab('btabs', 'serial');
   }
 
@@ -463,7 +485,14 @@ class App {
     this.autosave();
     this.saveFile(name + '.pbproj.json', JSON.stringify(p, null, 1), 'picoBuilder 프로젝트', '.json', 'application/json');
   }
-  savePy() { this.saveFile('main.py', this.cm.getValue(), 'Python 파일', '.py', 'text/x-python'); }
+  savePy() {
+    if (this.lang() === 'cpp') {
+      const name = (document.getElementById('projName').value || 'sketch').replace(/[\\/:*?"<>|\s]/g, '_');
+      this.saveFile(name + '.ino', this.cm.getValue(), 'Arduino 스케치', '.ino', 'text/plain');
+      return;
+    }
+    this.saveFile('main.py', this.cm.getValue(), 'Python 파일', '.py', 'text/x-python');
+  }
   openFile(onlyPy) {
     const inp = document.getElementById('fileInput');
     inp.accept = onlyPy ? '.py' : '.json,.py';
@@ -487,13 +516,22 @@ class App {
 
   // ---------- 실행 ----------
   async runSim() {
-    if (this.codeMode === 'auto') this.regen();
-    const code = this.currentCode();
+    this.regen({ keepManual: true });
     this.switchTab('btabs', 'sim');
-    await this.runtime.run(code);
+    if (this.lang() === 'cpp') {
+      // C++는 브라우저에서 실행할 수 없으므로, 같은 노드 그래프로 만든 파이썬 코드로 시뮬레이션합니다
+      if (this.codeMode === 'manual') this.log('※ 직접 편집한 C++ 코드는 실행할 수 없어 노드 그래프 기준으로 시뮬레이션합니다', 'warn');
+      await this.runtime.run(this.lastGen.simCode || '');
+      return;
+    }
+    await this.runtime.run(this.currentCode());
   }
 
   async picoAction(kind) {
+    if (this.lang() === 'cpp') {
+      this.toast('구형 Arduino는 브라우저에서 컴파일할 수 없습니다. "📋" 버튼으로 코드를 복사해 Arduino IDE에서 업로드하세요', 'warn');
+      return;
+    }
     const code = this.currentCode();
     const libs = this.neededLibs(code);
     const prog = m => { this.serialLog(`[${m}]\n`, 'info'); this.setStatus(m, 'busy'); };
@@ -574,7 +612,7 @@ class App {
     const dd = $('btnEx').parentElement;
     // 예제 메뉴: 보드별 탭 + 스크롤 목록 (현재 보드 탭이 기본)
     const exBoard = x => x.board || (/^Ⓜ/.test(x.name) ? 'microbit' : /^Ⓔ/.test(x.name) ? 'esp32' : /^Ⓩ/.test(x.name) ? 'rp2040zero' : 'pico');
-    const exTabs = ['pico', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'microbit', 'esp32'];
+    const exTabs = ['pico', 'rp2040zero', 'nanorp2040', 'nanoesp32', 'unor3', 'nano328', 'microbit', 'esp32'];
     const renderEx = bt => {
       $('exMenu').innerHTML = `<div class="extabs">${exTabs.map(t => BOARDS[t]).map(b => `<button data-exb="${b.type}" class="${b.type === bt ? 'on' : ''}">${b.icon} ${esc(b.short)} <em>${EXAMPLES.filter(x => exBoard(x) === b.type).length}</em></button>`).join('')}</div>
         <div class="exlist">${EXAMPLES.map((x, i) => exBoard(x) === bt ? `<div data-i="${i}">${esc(x.name)}<small>${esc(x.desc)}</small></div>` : '').join('')}</div>`;

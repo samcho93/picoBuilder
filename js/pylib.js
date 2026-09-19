@@ -743,7 +743,7 @@ async def run(src, board='pico'):
     for p in ('/pbpico', '/pbmb', '/pbesp'):
         while p in sys.path:
             sys.path.remove(p)
-    sys.path.insert(0, {'microbit': '/pbmb', 'esp32': '/pbesp', 'nanoesp32': '/pbesp'}.get(board, '/pbpico'))
+    sys.path.insert(0, {'microbit': '/pbmb', 'esp32': '/pbesp', 'nanoesp32': '/pbesp', 'unor3': '/pbesp', 'nano328': '/pbesp'}.get(board, '/pbpico'))
     if board == 'microbit':
         import microbit  # noqa: 화면 초기화
     else:
@@ -854,11 +854,21 @@ import pbhw, time, _pbrt
 from pyodide.ffi import create_proxy
 
 _BOARD = pbhw.board_type()
-_S3 = _BOARD == 'nanoesp32'           # Arduino Nano ESP32 (ESP32-S3)
-_ESP = _BOARD == 'esp32' or _S3
-_ESP_GPIO = (set(range(22)) | set(range(26, 49))) if _S3 else set(range(40)) - {20, 24, 28, 29, 30, 31}
-_ESP_ADC = tuple(range(1, 21)) if _S3 else (32, 33, 34, 35, 36, 39, 0, 2, 4, 12, 13, 14, 15, 25, 26, 27)
-_ESP_TOUCH = tuple(range(1, 15)) if _S3 else (0, 2, 4, 12, 13, 14, 15, 27, 32, 33)
+_S3 = _BOARD == 'nanoesp32'                      # Arduino Nano ESP32 (ESP32-S3)
+_AVR = _BOARD in ('unor3', 'nano328')            # 구형 Arduino: 시뮬레이터 전용 (실제 코드는 C++)
+_ESP = _BOARD == 'esp32' or _S3 or _AVR          # 핀 자유 배정 + adc_pin 경로 공유
+if _AVR:
+    _ESP_GPIO = set(range(22))
+    _ESP_ADC = tuple(range(14, 22))
+    _ESP_TOUCH = ()
+elif _S3:
+    _ESP_GPIO = set(range(22)) | set(range(26, 49))
+    _ESP_ADC = tuple(range(1, 21))
+    _ESP_TOUCH = tuple(range(1, 15))
+else:
+    _ESP_GPIO = set(range(40)) - {20, 24, 28, 29, 30, 31}
+    _ESP_ADC = (32, 33, 34, 35, 36, 39, 0, 2, 4, 12, 13, 14, 15, 25, 26, 27)
+    _ESP_TOUCH = (0, 2, 4, 12, 13, 14, 15, 27, 32, 33)
 _irq = {}
 _timers = {}
 
@@ -886,7 +896,7 @@ def _gid(p):
         return p._id
     if isinstance(p, str):
         if p == 'LED':
-            return 48 if _S3 else (2 if _ESP else 25)
+            return 13 if _AVR else (48 if _S3 else (2 if _ESP else 25))
         if not _ESP and p in ('WL_GPIO0', 'GP25', 'GPIO25'):
             return 25
         s = p.upper().replace('GPIO', '').replace('GP', '')
@@ -921,7 +931,7 @@ class Pin:
     def init(self, mode=-1, pull=-1, *args, value=None, **kw):
         if mode is None:
             mode = -1
-        if _ESP and not _S3 and self._id >= 34:
+        if _ESP and not _S3 and not _AVR and self._id >= 34:
             if mode in (1, 2):
                 raise ValueError('pin can only be input')
             pull = 0 if pull not in (-1, None) else pull
@@ -1026,11 +1036,12 @@ class ADC:
     ATTN_2_5DB = 1
     ATTN_6DB = 2
     ATTN_11DB = 3
+    _AVR_FS = (5.0, 5.0, 5.0, 5.0)
     WIDTH_9BIT = 9
     WIDTH_10BIT = 10
     WIDTH_11BIT = 11
     WIDTH_12BIT = 12
-    _FS = (1.0, 1.34, 2.0, 3.3)
+    _FS = (5.0, 5.0, 5.0, 5.0) if _AVR else (1.0, 1.34, 2.0, 3.3)
 
     def __init__(self, pin, *a, atten=None, **k):
         self._esp = _ESP
@@ -1039,7 +1050,7 @@ class ADC:
             if g not in _ESP_ADC:
                 raise ValueError('invalid Pin for ADC')
             self._g = g
-            self._atten = 0 if atten is None else atten
+            self._atten = (3 if _AVR else 0) if atten is None else atten
             return
         if isinstance(pin, int) and 0 <= pin <= 4:
             self._ch = pin
@@ -1060,7 +1071,7 @@ class ADC:
             self._atten = atten
 
     def _volts(self):
-        v = int(pbhw.adc_pin(self._g)) * 3.3 / 65535
+        v = int(pbhw.adc_pin(self._g)) * self._FS[3] / 65535
         return min(v, self._FS[self._atten])
 
     def read_u16(self):
@@ -1106,7 +1117,7 @@ class I2C:
         if _ESP and not _soft:
             if id not in (0, 1):
                 raise ValueError("I2C(%s) doesn't exist" % id)
-            dscl, dsda = ((18, 19), (25, 26))[id]
+            dscl, dsda = (19, 18) if _AVR else ((18, 19), (25, 26))[id]
             self._scl = _gid(scl) if scl is not None else dscl
             self._sda = _gid(sda) if sda is not None else dsda
         elif not _soft:
@@ -1182,9 +1193,12 @@ class SPI:
 
     def __init__(self, id=0, baudrate=1000000, *, polarity=0, phase=0, bits=8, firstbit=0, sck=None, mosi=None, miso=None, _soft=False):
         if _ESP and not _soft:
-            if id not in (1, 2):
-                raise ValueError("SPI(%s) doesn't exist" % id)
-            d = {1: (14, 13, 12), 2: (18, 23, 19)}[id]
+            if _AVR:
+                d = (13, 11, 12)
+            else:
+                if id not in (1, 2):
+                    raise ValueError("SPI(%s) doesn't exist" % id)
+                d = {1: (14, 13, 12), 2: (18, 23, 19)}[id]
             self._sck = _gid(sck) if sck is not None else d[0]
             self._mosi = _gid(mosi) if mosi is not None else d[1]
             self._miso = _gid(miso) if miso is not None else d[2]
@@ -1244,9 +1258,12 @@ _UART_DEF = {0: (0, 1), 1: (4, 5)}
 class UART:
     def __init__(self, id, baudrate=115200, bits=8, parity=None, stop=1, *, tx=None, rx=None, timeout=0, **kw):
         if _ESP:
-            if id not in (0, 1, 2):
-                raise ValueError("UART(%s) doesn't exist" % id)
-            d = ((1, 3), (10, 9), (17, 16))[id]
+            if _AVR:
+                d = (1, 0)
+            else:
+                if id not in (0, 1, 2):
+                    raise ValueError("UART(%s) doesn't exist" % id)
+                d = ((1, 3), (10, 9), (17, 16))[id]
             self._tx = _gid(tx) if tx is not None else d[0]
             self._rx = _gid(rx) if rx is not None else d[1]
         else:

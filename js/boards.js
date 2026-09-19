@@ -396,4 +396,103 @@ for (const [t, funcOf] of [['nanorp2040', gpioFunctions], ['nanoesp32', g => ESP
   bd.pinLabel = g => { const p = Object.values(bd.pins).find(x => x.gpio === g); return p ? `${p.name} (GPIO${g})` : 'GPIO' + g; };
 }
 
+// ---------- 구형 Arduino (ATmega328P, 5V) : Uno R3 / Nano ----------
+// 핀 번호 = Arduino 번호 (D0~D13 = 0~13, A0~A7 = 14~21)
+const AVR_PWM = [3, 5, 6, 9, 10, 11];
+function avrFuncs(g, maxAnalog) {
+  const f = [];
+  if (g >= 14) { f.push('아날로그 입력 A' + (g - 14)); if (g === 18) f.push('I2C SDA'); if (g === 19) f.push('I2C SCL'); if (g <= 19) f.push('디지털 입출력'); else f.push('아날로그 입력 전용 (디지털 불가)'); return f; }
+  f.push('디지털 입출력');
+  if (AVR_PWM.includes(g)) f.push('PWM (analogWrite)');
+  if (g === 0) f.push('Serial RX (USB)');
+  if (g === 1) f.push('Serial TX (USB)');
+  if (g === 2 || g === 3) f.push('외부 인터럽트 INT' + (g - 2));
+  if (g === 10) f.push('SPI SS');
+  if (g === 11) f.push('SPI MOSI');
+  if (g === 12) f.push('SPI MISO');
+  if (g === 13) f.push('SPI SCK · 내장 LED');
+  return f;
+}
+const avrPinCode = g => g >= 14 ? 'A' + (g - 14) : String(g);
+
+// Uno R3: 왼쪽 = 전원/아날로그 헤더, 오른쪽 = 디지털 헤더
+const UNO_LEFT = [['RST', 'ctrl'], ['3V3', 'power'], ['5V', 'power5'], ['GND', 'gnd'], ['GND', 'gnd'], ['VIN', 'ctrl'],
+  ['A0', 14], ['A1', 15], ['A2', 16], ['A3', 17], ['A4', 18], ['A5', 19]];
+const UNO_RIGHT = [['SCL', 19], ['SDA', 18], ['AREF', 'ctrl'], ['GND', 'gnd'], ['D13', 13], ['D12', 12], ['D11', 11], ['D10', 10], ['D9', 9],
+  ['D8', 8], ['D7', 7], ['D6', 6], ['D5', 5], ['D4', 4], ['D3', 3], ['D2', 2], ['D1', 1], ['D0', 0]];
+const AVR_ALT = { D0: 'RX', D1: 'TX', D3: 'PWM·INT1', D2: 'INT0', D5: 'PWM', D6: 'PWM', D9: 'PWM', D10: 'PWM·SS', D11: 'PWM·MOSI', D12: 'MISO', D13: 'SCK·LED', A4: 'SDA', A5: 'SCL' };
+
+function avrPins(left, right, maxAnalog) {
+  const pins = {};
+  const mk = (pre, list) => list.forEach(([name, t], i) => {
+    const key = pre + (i + 1);
+    const p = { num: key, name, gpio: null, type: 'gpio', funcs: [] };
+    if (typeof t === 'number') { p.gpio = t; p.funcs = [`Arduino ${avrPinCode(t)}`, ...avrFuncs(t, maxAnalog)]; }
+    else if (t === 'gnd') { p.type = 'gnd'; p.v = 0; }
+    else if (t === 'power') { p.type = 'power'; p.v = 3.3; }
+    else if (t === 'power5') { p.type = 'power5'; p.v = 5.0; }
+    else { p.type = 'ctrl'; p.funcs = [{ RST: '리셋 (LOW = 리셋)', AREF: 'ADC 기준 전압', VIN: '외부 전원 입력 (7~12V)' }[name] || '']; }
+    pins[key] = p;
+  });
+  mk('L', left); mk('R', right);
+  return pins;
+}
+
+function avrBoard(extra) {
+  return {
+    lang: 'cpp', vio: 5.0, vref: 5.0, ledGpio: 13,
+    pinLabel: g => avrPinCode(g),
+    pinCode: avrPinCode,
+    render(n, sim) { renderBoardPins(n, sim, 13); },
+    ...extra,
+  };
+}
+
+BOARDS.unor3 = avrBoard({
+  type: 'unor3', id: 'uno', label: 'Arduino Uno R3', short: 'Uno', icon: '🅰',
+  pins: avrPins(UNO_LEFT, UNO_RIGHT, 19),
+  desc: 'ATmega328P · 16MHz · 2KB SRAM · 32KB Flash · 5V 로직. MicroPython을 실행할 수 없어 Arduino C++(.ino) 코드를 생성합니다. 시뮬레이션은 노드 그래프를 기준으로 동작합니다. I2C는 A4(SDA)/A5(SCL), SPI는 D11(MOSI)/D12(MISO)/D13(SCK) 고정이며 PWM은 D3, D5, D6, D9, D10, D11에서만 됩니다.',
+  html(n) { return avrHtml(this, n, 'Arduino Uno R3', 'ATmega328P', '#00979d'); },
+});
+
+// Nano(ATmega328P): Nano 폼팩터 + Arduino 핀 번호
+const NANO328_MAP = { D0: 0, D1: 1, D2: 2, D3: 3, D4: 4, D5: 5, D6: 6, D7: 7, D8: 8, D9: 9, D10: 10, D11: 11, D12: 12, D13: 13, A0: 14, A1: 15, A2: 16, A3: 17, A4: 18, A5: 19, A6: 20, A7: 21 };
+BOARDS.nano328 = avrBoard({
+  type: 'nano328', id: 'nano', label: 'Arduino Nano (ATmega328P)', short: 'Nano', icon: '🅱',
+  map: NANO328_MAP,
+  desc: 'ATmega328P · 16MHz · 2KB SRAM · 32KB Flash · 5V 로직 · 구형 Nano. MicroPython을 실행할 수 없어 Arduino C++(.ino) 코드를 생성합니다. I2C는 A4/A5, SPI는 D11~D13 고정이고 PWM은 D3, D5, D6, D9, D10, D11입니다. A6·A7은 아날로그 입력 전용입니다.',
+  html(n) { return nanoHtml(this, n, 'Arduino Nano', 'ATmega328P', '#0f7a80'); },
+});
+BOARDS.nano328.pins = nanoPins(NANO328_MAP, g => avrFuncs(g, 21));
+
+function avrHtml(bd, n, title, sub, color) {
+  const tip = p => esc(`${p.name}${p.gpio != null ? ' (Arduino ' + avrPinCode(p.gpio) + ')' : ''}\n${p.funcs.filter(Boolean).join(', ')}`);
+  const lbl = p => `${p.name}${AVR_ALT[p.name] ? `<small class="alt">${AVR_ALT[p.name]}</small>` : ''}`;
+  const rows = [];
+  const n1 = Object.keys(bd.pins).filter(k => k[0] === 'L').length, n2 = Object.keys(bd.pins).filter(k => k[0] === 'R').length;
+  for (let i = 0; i < Math.max(n1, n2); i++) {
+    const L = bd.pins['L' + (i + 1)], R = bd.pins['R' + (i + 1)];
+    const cell = (p, dir) => p ? `<i class="port k-pin t-${p.type}" data-t="${bd.id}:${p.num}" data-s="${dir}" title="${tip(p)}"></i>` : '<i class="port-sp"></i>';
+    rows.push(`<div class="prow">
+      ${cell(L, -1)}<span class="plbl t-${L ? L.type : ''}" data-g="${L && L.gpio != null ? L.gpio : ''}">${L ? lbl(L) : ''}</span>
+      <span class="pmid"></span>
+      <span class="plbl r t-${R ? R.type : ''}" data-g="${R && R.gpio != null ? R.gpio : ''}">${R ? lbl(R) : ''}</span>${cell(R, 1)}
+    </div>`);
+  }
+  return `<div class="nhead" style="--c:${color}"><span class="ico">${bd.icon}</span><span class="ttl">${title}</span><b class="nm">${sub}</b></div>
+    <div class="avr-board">
+      <div class="avr-center"><div class="usb-b"></div>
+        <div class="obled amber" title="내장 LED (D13)"></div><span class="ledlbl">LED D13</span>
+        <div class="avr-chip">${sub}</div><div class="avr-note">5V</div>
+      </div>
+      <div class="prows">${rows.join('')}</div>
+    </div>`;
+}
+
+for (const t of ['unor3', 'nano328']) {
+  const bd = BOARDS[t];
+  bd.gpioKey = g => Object.values(bd.pins).find(p => p.gpio === g)?.num || null;
+  bd.gpios = [...new Set(Object.values(bd.pins).filter(p => p.gpio != null).map(p => p.gpio))].sort((a, b) => a - b);
+}
+
 const boardDef = n => n && BOARDS[n.type];

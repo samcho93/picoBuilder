@@ -405,3 +405,37 @@ g.w .hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: st
 .nano-center { position: absolute; left: 92px; right: 92px; top: 10px; bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .nano-chip { width: 62px; height: 62px; margin-top: 12px; background: #15181b; color: #ccc; font-size: 9px; display: flex; align-items: center; justify-content: center; text-align: center; border-radius: 3px; box-shadow: inset 0 0 0 2px #333; }
 .obled.amber.on { background: #ffcf4d; box-shadow: 0 0 10px 3px #ffb300; }
+/* ---------- 구형 Arduino (Uno / Nano 328) ---------- */
+.node.unor3, .node.nano328 { width: 300px; background: #0a4f52; border-color: #00979d; }
+.avr-board { position: relative; padding: 14px 0 10px; }
+.avr-board .prow { height: 19px; }
+.avr-board .prow .port { margin: 0 -6px; background: #c9a33a; border-color: #06373a; }
+.avr-board .port.t-gnd { background: #222; border-color: #666; }
+.avr-board .port.t-power { background: #e53935; }
+.avr-board .port.t-power5 { background: #ff7043; }
+.avr-board .port.t-ctrl { background: #888; }
+.avr-board .port-sp { display: inline-block; width: 11px; height: 11px; flex: none; }
+.avr-board .plbl { width: 96px; color: #e6f7f8; }
+.avr-board .plbl small.alt { width: auto; margin-left: 4px; font-size: 9px; color: #8fc3c6; }
+.avr-center { position: absolute; left: 96px; right: 96px; top: 12px; bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.usb-b { width: 40px; height: 22px; background: linear-gradient(#b9bfc3, #7e868b); border-radius: 3px; }
+.avr-chip { width: 76px; height: 34px; margin-top: 10px; background: #16181a; color: #bbb; font-size: 9px; display: flex; align-items: center; justify-content: center; border-radius: 2px; box-shadow: inset 0 0 0 2px #333; }
+.avr-note { font-size: 10px; color: #ffd08a; border: 1px solid #ffd08a; border-radius: 3px; padding: 0 4px; }
+body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
+/* ---------- 구형 Arduino (Uno / Nano 328) ---------- */
+.node.unor3, .node.nano328 { width: 300px; background: #0a4f52; border-color: #00979d; }
+.avr-board { position: relative; padding: 14px 0 10px; }
+.avr-board .prow { height: 19px; }
+.avr-board .prow .port { margin: 0 -6px; background: #c9a33a; border-color: #06373a; }
+.avr-board .port.t-gnd { background: #222; border-color: #666; }
+.avr-board .port.t-power { background: #e53935; }
+.avr-board .port.t-power5 { background: #ff7043; }
+.avr-board .port.t-ctrl { background: #888; }
+.avr-board .port-sp { display: inline-block; width: 11px; height: 11px; flex: none; }
+.avr-board .plbl { width: 96px; color: #e6f7f8; }
+.avr-board .plbl small.alt { width: auto; margin-left: 4px; font-size: 9px; color: #8fc3c6; }
+.avr-center { position: absolute; left: 96px; right: 96px; top: 12px; bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.usb-b { width: 40px; height: 22px; background: linear-gradient(#b9bfc3, #7e868b); border-radius: 3px; }
+.avr-chip { width: 76px; height: 34px; margin-top: 10px; background: #16181a; color: #bbb; font-size: 9px; display: flex; align-items: center; justify-content: center; border-radius: 2px; box-shadow: inset 0 0 0 2px #333; }
+.avr-note { font-size: 10px; color: #ffd08a; border: 1px solid #ffd08a; border-radius: 3px; padding: 0 4px; }
+body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }

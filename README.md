@@ -1,6 +1,6 @@
 # 🍓 picoBuilder
 
-**Raspberry Pi Pico**, **Waveshare RP2040-Zero**, **Arduino Nano RP2040 Connect / Nano ESP32**, **BBC micro:bit V2**, **ESP32 DevKitC**용 **노드 기반 MicroPython 코드 빌더**입니다. 브라우저에서 회로를 배선하고, 프로그램을 노드로 연결해 코드를 만들고, 시뮬레이터로 실행한 뒤 실제 보드에 업로드할 수 있습니다.
+**Raspberry Pi Pico**, **Waveshare RP2040-Zero**, **Arduino Nano RP2040 Connect / Nano ESP32**, **BBC micro:bit V2**, **ESP32 DevKitC**용 **노드 기반 MicroPython 코드 빌더**입니다. 구형 **Arduino Uno R3 / Nano(ATmega328P)** 는 MicroPython이 올라가지 않으므로 같은 노드 그래프에서 **Arduino C++(.ino)** 코드를 생성합니다. 브라우저에서 회로를 배선하고, 프로그램을 노드로 연결해 코드를 만들고, 시뮬레이터로 실행한 뒤 실제 보드에 업로드할 수 있습니다.
 
 **▶ 실행: https://samcho93.github.io/picoBuilder/**
 
@@ -8,10 +8,11 @@
 
 | 기능 | 설명 |
 |---|---|
-| 보드 선택 | 상단에서 Pico, RP2040-Zero, Nano RP2040 Connect, Nano ESP32, micro:bit, ESP32 중 하나를 고릅니다. 보드를 바꿔도 모듈과 프로그램 노드는 유지되고, 생성 코드(`machine` / `microbit`)와 사용 가능한 노드가 보드에 맞게 바뀝니다. |
+| 보드 선택 | 상단에서 Pico, RP2040-Zero, Nano RP2040 Connect, Nano ESP32, Uno R3, Nano(구형), micro:bit, ESP32 중 하나를 고릅니다. 보드를 바꿔도 모듈과 프로그램 노드는 유지되고, 생성 코드(`machine` / `microbit`)와 사용 가능한 노드가 보드에 맞게 바뀝니다. |
 | Pico 핀맵 노드 | 실제 보드의 물리 핀 배열(왼쪽 1~20, 오른쪽 21~40)을 그대로 사용합니다. GPIO, 3V3, VBUS, VSYS, GND를 포함한 모든 핀을 배선할 수 있고, 핀에 마우스를 올리면 I2C, SPI, UART, ADC, PWM 대체 기능이 표시됩니다. |
 | RP2040-Zero 노드 | Waveshare RP2040-Zero의 핀 배치를 따릅니다: 왼쪽 5V·GND·3V3·GP29~GP26·GP15·GP14, 오른쪽 GP0~GP8, 아래쪽 GP13~GP9, 뒷면 납땜 패드 GND·GP25~GP17. 내장 WS2812 RGB LED(GP16)와 BOOT 버튼(`rp2.bootsel_button()`)을 시뮬레이션하며, Pico에 없는 ADC3(GP29)을 사용할 수 있습니다. 코드는 Pico와 같은 RP2040 MicroPython입니다. |
 | Arduino Nano 노드 | Nano 폼팩터 핀 배치(왼쪽 D12~D1, 오른쪽 D13~VIN)를 그대로 사용합니다. **Nano RP2040 Connect**(RP2040)와 **Nano ESP32**(ESP32-S3)를 지원하며, D0~D13·A0~A7 핀 이름이 보드별 GPIO 번호로 자동 변환되어 코드에 들어갑니다(예: Nano RP2040의 A4/A5 → `I2C(0, sda=Pin(12), scl=Pin(13))`). 구형 Arduino Nano(ATmega328P)는 MicroPython을 실행할 수 없어 지원하지 않습니다. |
+| 구형 Arduino (Uno R3 / Nano) | ATmega328P는 MicroPython을 실행할 수 없어 **Arduino C++ 코드**를 생성합니다. `setup()`/`loop()` 구조, 라이브러리 `#include`, `pinMode`/`digitalWrite`/`analogRead`/`tone`/`Servo` 등으로 변환하고, 필요한 라이브러리 목록을 코드 주석과 아래 표시줄에 보여줍니다. D2·D3만 외부 인터럽트라 다른 핀의 이벤트는 루프 폴링 코드로, PWM은 D3·D5·D6·D9·D10·D11, I2C는 A4/A5, SPI는 D11~D13 제약을 경고로 알려줍니다. 5V 로직으로 시뮬레이션되며, 업로드는 코드를 복사해 Arduino IDE에서 진행합니다(브라우저에서는 C++ 컴파일 불가). |
 | micro:bit 노드 | 엣지 커넥터 25핀을 실제 순서(3, 0, 4, 5, 6, 7, 1, 8 … 3V, 19, 20, GND)대로 아래쪽에 배치했습니다. 5x5 LED 화면, 버튼 A/B, 터치 로고, 가속도·나침반·온도·빛·소리 센서, 스피커를 시뮬레이션합니다. |
 | ESP32 노드 | ESP32-DevKitC V4(38핀)의 양쪽 핀을 실제 순서대로 배치했습니다. BOOT 버튼(GPIO0), 보드 LED(GPIO2), WiFi 상태, 칩 온도를 시뮬레이션합니다. 입력 전용 핀(GPIO34~39), 플래시 핀(GPIO6~11), USB REPL 핀(GPIO1/3), ADC2와 WiFi의 동시 사용 제한을 경고합니다. I2C/SPI/UART는 원하는 핀에 자유롭게 배정할 수 있습니다. |
 | ESP32 전용 노드 | WiFi 연결과 WiFi 상태(IP), 정전식 터치 센서 노드가 있습니다. 시뮬레이터의 WiFi는 가상으로 연결됩니다. |
@@ -65,6 +66,7 @@ js/boards.js      보드 정의 (Pico, micro:bit V2 엣지 커넥터, ESP32 DevK
 js/devices.js     하드웨어 모듈 정의 + 프로토콜 에뮬레이터
 js/sim.js         네트 계산, GPIO 상태, pbhw 브리지
 js/nodes.js       프로그램 노드 + 그래프 → MicroPython 코드 생성
+js/arduino.js     그래프 → Arduino C++(.ino) 코드 생성 (Uno / Nano 328P)
 js/pylib.js       Python 모듈 (시뮬레이터용 machine(Pico/ESP32 겸용), network, esp32, 업로드용 드라이버)
 js/pylib_mb.js    micro:bit 시뮬레이터 모듈(microbit, music, radio) + mbcompat
 js/runtime.js     Pyodide 런타임
@@ -91,3 +93,4 @@ js/app.js         앱 통합
 11. EPS32에서도 마이크로파이썬을 구동할 수 있나? 있으면 ESP32도 추가
 12. https://www.waveshare.com/wiki/RP2040-Zero 위 사이트를 참고해서 RP2040-Zero 도 포함해주고, 예제도 추가해줘.
 13. arduino nano 도 추가, 예제 포함. (→ MicroPython이 동작하는 Nano RP2040 Connect / Nano ESP32 추가)
+14. 구형 아두이노를 위한 최적의 방법은? (→ Arduino C++ 코드 생성 + 노드 그래프 시뮬레이션 방식으로 Uno R3 / Nano(ATmega328P) 추가)

@@ -11,6 +11,12 @@ function buildProject(name, fn, board = 'pico') {
     _find: id => nodes.find(n => n.id === id),
     P(p) {
       if (board === 'microbit') return 'mb:' + (typeof p === 'number' ? 'P' + p : p);
+      if (board === 'unor3') {
+        const pins = Object.values(BOARDS.unor3.pins);
+        const hit = typeof p === 'number' ? pins.find(x => x.gpio === p && x.num[0] === 'R')
+          : p === 'GND2' ? pins.filter(x => x.name === 'GND')[1] : pins.find(x => x.name === p);
+        return 'uno:' + hit.num;
+      }
       if (board.startsWith('nano')) {
         const pins = Object.values(BOARDS[board].pins);
         const name = p === 'GND2' ? 'GND' : p;
@@ -276,6 +282,106 @@ while True:
 
 // 예제에서 노드 입력 기본값을 지정할 때 사용
 function nodeSt(E, id) { return E._find(id).st; }
+
+// ---------------- 구형 Arduino (Uno R3 / Nano 328P) 예제 ----------------
+EXAMPLES.push(
+  {
+    group: '🅰 구형 Arduino (C++)', board: 'unor3',
+    name: 'Ⓒ① 내장 LED 깜빡이기 (Uno)', desc: 'Arduino의 Blink — 노드에서 .ino 코드가 생성됩니다',
+    build: () => buildProject('Uno 블링크', E => {
+      const loop = E.node('ev_loop', 800, 60, { delay: 0 });
+      const t = E.node('onboard_toggle', 980, 60);
+      const w = E.node('wait', 1160, 60);
+      E.flow(loop, t, w);
+    }, 'unor3'),
+  },
+  {
+    board: 'unor3',
+    name: 'Ⓒ② 버튼(D2)으로 LED(D9) + 부저', desc: '버튼을 누르면 LED를 켜고 부저(D3)로 소리',
+    build: () => buildProject('Uno 버튼 LED 부저', E => {
+      const btn = E.dev('button', 110, 90, { flip: true });
+      const led = E.dev('led', 110, 260, { flip: true });
+      const bz = E.dev('buzzer', 110, 420, { flip: true });
+      E.hw(btn, { A: 2, B: 'GND' });
+      E.hw(led, { '+': 9, '-': 'GND2' });
+      E.hw(bz, { '+': 3, '-': 'GND2' });
+      const loop = E.node('ev_loop', 840, 40, { delay: 20 });
+      const iff = E.node('if', 1020, 40);
+      const on = E.node('m_led', 1220, 0), tone = E.node('m_buzzer', 1420, 0), off = E.node('m_led', 1220, 240);
+      E.flow(loop, iff);
+      E.w(iff + ':then', on + ':in'); E.w(on + ':out', tone + ':in');
+      E.w(iff + ':else', off + ':in');
+      E.ref(led, on); E.ref(led, off); E.ref(bz, tone);
+      Object.assign(nodeSt(E, off), { on: false });
+      Object.assign(nodeSt(E, tone), { freq: 880, ms: 100 });
+      const rd = E.node('m_button', 840, 220);
+      E.ref(btn, rd);
+      E.data(rd + '.pressed', iff + '.cond');
+    }, 'unor3'),
+  },
+  {
+    board: 'unor3',
+    name: 'Ⓒ③ 가변저항(A0) → 서보(D9) + 시리얼', desc: 'analogRead 값을 각도로 변환하고 시리얼 모니터에 출력',
+    build: () => buildProject('Uno 서보', E => {
+      const pot = E.dev('pot', 110, 90, { flip: true });
+      const sv = E.dev('servo', 110, 330, { flip: true });
+      E.hw(pot, { VCC: '5V', GND: 'GND', OUT: 'A0' });
+      E.hw(sv, { GND: 'GND2', VCC: '5V', SIG: 9 });
+      const loop = E.node('ev_loop', 840, 40, { delay: 50 });
+      const m = E.node('m_servo', 1040, 40);
+      const pr = E.node('print', 1240, 40);
+      E.flow(loop, m, pr);
+      E.ref(sv, m);
+      const a = E.node('m_analog', 840, 220);
+      const map = E.node('map', 1040, 220);
+      E.ref(pot, a);
+      E.data(a + '.value', map + '.x');
+      Object.assign(nodeSt(E, map), { b: 100, d: 180 });
+      E.data(map + '.r', m + '.angle');
+      const j = E.node('join', 1240, 220);
+      Object.assign(nodeSt(E, j), { a: 'angle = ' });
+      E.data(map + '.r', j + '.b');
+      E.data(j + '.r', pr + '.value');
+    }, 'unor3'),
+  },
+  {
+    board: 'unor3',
+    name: 'Ⓒ④ DHT11(D4) → LCD1602(A4/A5)', desc: '온습도를 I2C LCD에 표시 (Uno의 I2C는 A4/A5 고정)',
+    build: () => buildProject('Uno DHT LCD', E => {
+      const dht = E.dev('dht11', 830, 330);
+      const lcd = E.dev('lcd', 830, 60);
+      E.hw(dht, { VCC: '5V', DATA: 4, GND: 'GND2' });
+      E.hw(lcd, { GND: 'GND2', VCC: '5V', SDA: 'A4', SCL: 'A5' });
+      const loop = E.node('ev_loop', 1130, 40, { delay: 2000 });
+      const p1 = E.node('m_lcd_print', 1310, 40), p2 = E.node('m_lcd_print', 1520, 40);
+      E.flow(loop, p1, p2);
+      E.ref(lcd, p1); E.ref(lcd, p2);
+      Object.assign(nodeSt(E, p2), { row: 1 });
+      const d = E.node('m_dht', 1130, 250);
+      E.ref(dht, d);
+      const j1 = E.node('join', 1310, 240), j2 = E.node('join', 1310, 340);
+      Object.assign(nodeSt(E, j1), { a: 'Temp: ' }); Object.assign(nodeSt(E, j2), { a: 'Humi: ' });
+      E.data(d + '.t', j1 + '.b'); E.data(d + '.h', j2 + '.b');
+      E.data(j1 + '.r', p1 + '.text'); E.data(j2 + '.r', p2 + '.text');
+    }, 'unor3'),
+  },
+  {
+    board: 'nano328',
+    name: 'Ⓒ⑤ 구형 Nano: 네오픽셀 무지개(D6)', desc: 'Adafruit NeoPixel 라이브러리 코드 생성 + 시뮬레이션',
+    build: () => buildProject('Nano 네오픽셀', E => {
+      const np = E.dev('neopixel', 830, 330);
+      E.hw(np, { DIN: 'D6', VCC: '5V', GND: 'GND' });
+      const loop = E.node('ev_loop', 1060, 40, { delay: 30 });
+      const inc = E.node('var_change', 1240, 40, { name: 'hue' });
+      const rb = E.node('m_np_rainbow', 1420, 40);
+      const g = E.node('var_get', 1240, 200, { name: 'hue' });
+      Object.assign(nodeSt(E, inc), { by: 6 });
+      E.flow(loop, inc, rb);
+      E.ref(np, rb);
+      E.data(g + '.value', rb + '.off');
+    }, 'nano328'),
+  },
+);
 
 // ---------------- Arduino Nano RP2040 Connect 예제 ----------------
 EXAMPLES.push(

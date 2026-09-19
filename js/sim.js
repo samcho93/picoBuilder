@@ -114,6 +114,9 @@ class Sim {
     return i === undefined ? -1 : i;
   }
   board() { return this.circuit.nodes.find(n => BOARDS[n.type]); }
+  // 보드 로직 전압 (AVR 계열은 5V)
+  vio() { const b = this.board(); return (b && BOARDS[b.type].vio) || VLOGIC; }
+  vref() { const b = this.board(); return (b && BOARDS[b.type].vref) || VLOGIC; }
   gpioNet(g) {
     const b = this.board();
     const key = b && BOARDS[b.type].gpioKey(g);
@@ -124,6 +127,7 @@ class Sim {
   evaluate() {
     if (this.topoDirty) this.rebuild();
     const N = this.nets.length;
+    const vio = this.vio();
     let devDrv = new Map();
     let nv = new Array(N);
     for (let pass = 0; pass < 3; pass++) {
@@ -138,12 +142,12 @@ class Sim {
         for (const g of net.gpios) {
           const st = this.gp[g];
           if (st.mode === 'out') {
-            if (st.pwm) strong.push({ v: VLOGIC * st.pwm.duty / 65535, pwm: st.pwm });
-            else strong.push({ v: st.val ? VLOGIC : 0 });
+            if (st.pwm) strong.push({ v: vio * st.pwm.duty / 65535, pwm: st.pwm });
+            else strong.push({ v: st.val ? vio : 0 });
           } else if (st.mode === 'od') {
             if (!st.val) strong.push({ v: 0 });
-            else if (st.pull === 'up') weak.push({ v: VLOGIC });
-          } else if (st.pull === 'up') weak.push({ v: VLOGIC });
+            else if (st.pull === 'up') weak.push({ v: vio });
+          } else if (st.pull === 'up') weak.push({ v: vio });
           else if (st.pull === 'down') weak.push({ v: 0 });
         }
         const dd = devDrv.get(i);
@@ -195,7 +199,7 @@ class Sim {
       return (performance.now() % per) < per * x.pwm.duty / 65535 ? 1 : 0;
     }
     if (x.v == null) return null;
-    return x.v >= 1.65 ? 1 : 0;
+    return x.v >= this.vio() / 2 ? 1 : 0;
   }
   termV(t) { return this.netV(this.netIndex(t)); }
   termLevel(t) { return this.netLevel(this.netIndex(t)); }
@@ -380,14 +384,14 @@ function makeHwApi(sim) {
       const v = sim.netV(ni);
       if (v == null) return Math.round(300 + Math.random() * 1500);
       const noise = (Math.random() - 0.5) * 60;
-      return Math.max(0, Math.min(65535, Math.round(v / 3.3 * 65535 + noise)));
+      return Math.max(0, Math.min(65535, Math.round(v / sim.vref() * 65535 + noise)));
     },
 
     adc_pin(g) {
       sim.step();
       const v = sim.netV(sim.gpioNet(g));
       if (v == null) return Math.round(300 + Math.random() * 1500);
-      return Math.max(0, Math.min(65535, Math.round(v / 3.3 * 65535 + (Math.random() - 0.5) * 60)));
+      return Math.max(0, Math.min(65535, Math.round(v / sim.vref() * 65535 + (Math.random() - 0.5) * 60)));
     },
 
     // ---- micro:bit 전용 ----
