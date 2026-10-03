@@ -121,6 +121,23 @@ const EXAMPLES = [
     }),
   },
   {
+    name: '④-1 FND 숫자 카운터 (캐소드 공통)', desc: '7세그먼트(GP2~GP9)에 0~9를 1초마다 표시',
+    build: () => buildProject('FND 카운터', E => {
+      const fnd = E.dev('fnd_cc', 760, 60);
+      E.hw(fnd, { a: 'GP2', b: 'GP3', c: 'GP4', d: 'GP5', e: 'GP6', f: 'GP7', g: 'GP8', dp: 'GP9', COM: 13 });
+      const loop = E.node('ev_loop', 1080, 40, { delay: 1000 });
+      const show = E.node('m_fnd', 1260, 40);
+      const inc = E.node('var_change', 1460, 40, { name: 'count' });
+      E.flow(loop, show, inc);
+      E.ref(fnd, show);
+      const g = E.node('var_get', 1080, 240, { name: 'count' });
+      const md = E.node('math', 1260, 240, { op: '%' });
+      Object.assign(nodeSt(E, md), { b: 10 });
+      E.data(g + '.value', md + '.a');
+      E.data(md + '.r', show + '.value');
+    }),
+  },
+  {
     name: '⑤ 네오픽셀 무지개', desc: 'WS2812 8개(GP16)에 회전하는 무지개 표시',
     build: () => buildProject('네오픽셀 무지개', E => {
       const np = E.dev('neopixel', 760, 420);
@@ -363,6 +380,24 @@ EXAMPLES.push(
       Object.assign(nodeSt(E, j1), { a: 'Temp: ' }); Object.assign(nodeSt(E, j2), { a: 'Humi: ' });
       E.data(d + '.t', j1 + '.b'); E.data(d + '.h', j2 + '.b');
       E.data(j1 + '.r', p1 + '.text'); E.data(j2 + '.r', p2 + '.text');
+    }, 'unor3'),
+  },
+  {
+    board: 'unor3',
+    name: 'Ⓒ④-1 FND 카운터 (애노드 공통)', desc: '애노드 공통 7세그먼트(D2~D9)에 0~9 표시 — COM은 5V',
+    build: () => buildProject('Uno FND 카운터', E => {
+      const fnd = E.dev('fnd_ca', 820, 60);
+      E.hw(fnd, { a: 2, b: 3, c: 4, d: 5, e: 6, f: 7, g: 8, dp: 9, COM: '5V' });
+      const loop = E.node('ev_loop', 1140, 40, { delay: 1000 });
+      const show = E.node('m_fnd', 1320, 40);
+      const inc = E.node('var_change', 1520, 40, { name: 'count' });
+      E.flow(loop, show, inc);
+      E.ref(fnd, show);
+      const g = E.node('var_get', 1140, 240, { name: 'count' });
+      const md = E.node('math', 1320, 240, { op: '%' });
+      Object.assign(nodeSt(E, md), { b: 10 });
+      E.data(g + '.value', md + '.a');
+      E.data(md + '.r', show + '.value');
     }, 'unor3'),
   },
   {

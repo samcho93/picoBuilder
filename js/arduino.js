@@ -90,6 +90,19 @@ const CPP_DEV = {
     C.global(`Adafruit_NeoPixel ${n.name}(${n.st.count}, ${C.code(g)}, NEO_GRB + NEO_KHZ800);`);
     C.setup(`${n.name}.begin();`, `${n.name}.show();`);
   },
+  fnd_cc: (n, C) => CPP_DEV._fnd(n, C, false),
+  fnd_ca: (n, C) => CPP_DEV._fnd(n, C, true),
+  _fnd: (n, C, anode) => {
+    C.meta.anode = anode;
+    const gs = FND_SEGS.map(s => C.gpio(s));
+    const miss = FND_SEGS.filter((s, i) => gs[i] == null);
+    const k = C.kind('COM');
+    if (anode && k !== '3v3' && k !== '5v') C.warn('애노드 공통: COM 핀을 5V(또는 3V3)에 연결하세요');
+    if (!anode && k !== 'gnd') C.warn('캐소드 공통: COM 핀을 GND에 연결하세요');
+    if (miss.length) return C.warn(`세그먼트 핀을 디지털 핀에 연결하세요: ${miss.join(', ')}`);
+    C.global(`const int ${n.name}[8] = { ${gs.map(g => C.code(g)).join(', ')} };  // a, b, c, d, e, f, g, dp`);
+    C.setup(`for (int i = 0; i < 8; i++) pinMode(${n.name}[i], OUTPUT);`);
+  },
   dht11: (n, C) => CPP_DEV._dht(n, C, 'DHT11'),
   dht22: (n, C) => CPP_DEV._dht(n, C, 'DHT22'),
   _dht: (n, C, kind) => {
@@ -233,6 +246,22 @@ const CPP_STMT = {
   },
   m_buzzer_off: (n, G) => { const d = G.dev(n); return d ? [`noTone(${d.name});`] : []; },
   m_servo: (n, G) => { const d = G.dev(n); return d ? [`${d.name}.write(constrain(${G.expr(n, 'angle')}, 0, 180));`] : []; },
+  m_fnd: (n, G) => {
+    const d = G.dev(n); if (!d) return [];
+    G.fndHelper();
+    return [`fndShow(${d.name}, ${G.expr(n, 'value')}, ${G.expr(n, 'dot')}, ${G.meta(d).anode ? 'true' : 'false'});`];
+  },
+  m_fnd_off: (n, G) => {
+    const d = G.dev(n); if (!d) return [];
+    G.fndHelper();
+    return [`fndShow(${d.name}, -1, false, ${G.meta(d).anode ? 'true' : 'false'});`];
+  },
+  m_fnd_seg: (n, G) => {
+    const d = G.dev(n); if (!d) return [];
+    const i = Math.max(0, FND_SEGS.indexOf(n.st.seg || 'a'));
+    const on = G.expr(n, 'on');
+    return [`digitalWrite(${d.name}[${i}], ${G.meta(d).anode ? `!(${on})` : on} ? HIGH : LOW);`];
+  },
   m_np_fill: (n, G) => {
     const d = G.dev(n); if (!d) return [];
     return [`${d.name}.fill(${d.name}.Color(${G.expr(n, 'r')}, ${G.expr(n, 'g')}, ${G.expr(n, 'b')}));`, `${d.name}.show();`];
@@ -464,6 +493,16 @@ function generateArduino(graph, sim) {
     helper: (k, c) => { if (!helpers.has(k)) helpers.set(k, c); },
     meta: d => metas.get(d.id) || {},
     useSerial: () => { usedSerial.on = true; },
+    fndHelper: () => {
+      G.helper('fnd', `const uint8_t FND_DIGITS[16] = { ${FND_DIGITS.map(v => '0x' + v.toString(16).toUpperCase().padStart(2, '0')).join(', ')} };\n\n`
+        + 'void fndShow(const int *pins, int value, bool dot, bool anode) {\n'
+        + '  uint8_t bits = (value >= 0 && value < 16) ? FND_DIGITS[value] : 0;\n'
+        + '  if (dot) bits |= 0x80;\n'
+        + '  for (int i = 0; i < 8; i++) {\n'
+        + '    bool on = bits & (1 << i);\n'
+        + '    digitalWrite(pins[i], (anode ? !on : on) ? HIGH : LOW);\n'
+        + '  }\n}');
+    },
     ledPin: () => { if (!pinDecls.has('led')) { pinDecls.set('led', true); setupLines.push('pinMode(LED_BUILTIN, OUTPUT);'); } },
     analog: (read, unit) => unit === 'volt' ? `(${read} * 5.0 / 1023.0)` : unit === 'raw' ? read : `(${read} * 100L / 1023)`,
     var(n) {

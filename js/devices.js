@@ -468,6 +468,51 @@ DEVICES.neopixel = {
   },
 };
 
+// ---- FND (7세그먼트) ----
+// 세그먼트 비트: a=0, b=1, c=2, d=3, e=4, f=5, g=6, dp=7
+const FND_SEGS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
+const FND_DIGITS = [0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, 0x77, 0x7C, 0x39, 0x5E, 0x79, 0x71];
+const FND_SHAPE = {
+  a: 'M12,6 H44 L48,10 L44,14 H12 L8,10 Z', b: 'M46,12 L50,16 V44 L46,48 L42,44 V16 Z',
+  c: 'M46,54 L50,58 V86 L46,90 L42,86 V58 Z', d: 'M12,88 H44 L48,92 L44,96 H12 L8,92 Z',
+  e: 'M10,54 L14,58 V86 L10,90 L6,86 V58 Z', f: 'M10,12 L14,16 V44 L10,48 L6,44 V16 Z',
+  g: 'M12,47 H44 L48,51 L44,55 H12 L8,51 Z',
+};
+
+function fndDevice(anode) {
+  return {
+    label: `FND 7세그먼트 (${anode ? '애노드' : '캐소드'} 공통)`, cat: 'io', icon: '🔢', prefix: 'fnd',
+    desc: `1자리 7세그먼트 표시기 (${anode ? '애노드 공통: COM을 3V3/5V에, 세그먼트를 LOW로 켬' : '캐소드 공통: COM을 GND에, 세그먼트를 HIGH로 켬'}). 각 세그먼트에는 220Ω 정도의 저항을 함께 쓰세요.`,
+    anode,
+    pins: [...FND_SEGS.map(s => ({ n: s, role: 'io' })), { n: 'COM', role: 'io' }],
+    view: () => `<svg class="v-fnd" viewBox="0 0 64 102">${Object.entries(FND_SHAPE).map(([k, d]) => `<path data-seg="${k}" d="${d}"/>`).join('')}<circle data-seg="dp" cx="57" cy="92" r="4"/></svg>`,
+    render(n, ctx, el) {
+      const vio = ctx.sim.vio();
+      const com = ctx.v('COM');
+      if (!n._segs || !n._segs[0].isConnected) n._segs = [...el.querySelectorAll('[data-seg]')];
+      for (const s of n._segs) {
+        const v = ctx.v(s.dataset.seg);
+        let b = 0;
+        if (v != null && com != null) b = clamp((anode ? com - v : v - com) / vio, 0, 1);
+        const key = Math.round(b * 10);
+        if (s._b !== key) { s._b = key; s.style.opacity = 0.08 + b * 0.92; s.classList.toggle('on', b > 0.15); }
+      }
+    },
+    setup(n, C) {
+      C.meta.anode = anode;
+      const gs = FND_SEGS.map(s => C.gpio(s));
+      const miss = FND_SEGS.filter((s, i) => gs[i] == null);
+      const k = C.kind('COM');
+      if (anode && k !== '3v3' && k !== '5v') C.warn('애노드 공통: COM 핀을 3V3(또는 5V)에 연결하세요');
+      if (!anode && k !== 'gnd') C.warn('캐소드 공통: COM 핀을 GND에 연결하세요');
+      if (miss.length) return C.warn(`세그먼트 핀을 GPIO에 연결하세요: ${miss.join(', ')}`);
+      return [`${n.name} = [${gs.map(g => C.B.out(g)).join(', ')}]  # a, b, c, d, e, f, g, dp`];
+    },
+  };
+}
+DEVICES.fnd_cc = fndDevice(false);
+DEVICES.fnd_ca = fndDevice(true);
+
 // ---------- I2C 공통 ----------
 function i2cSetup(ctor, lib) {
   return function (n, C) {

@@ -439,3 +439,7 @@ body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 .avr-chip { width: 76px; height: 34px; margin-top: 10px; background: #16181a; color: #bbb; font-size: 9px; display: flex; align-items: center; justify-content: center; border-radius: 2px; box-shadow: inset 0 0 0 2px #333; }
 .avr-note { font-size: 10px; color: #ffd08a; border: 1px solid #ffd08a; border-radius: 3px; padding: 0 4px; }
 body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
+/* ---------- FND (7세그먼트) ---------- */
+.v-fnd { width: 54px; height: 86px; background: #14110f; border-radius: 4px; padding: 3px; }
+.v-fnd path, .v-fnd circle { fill: #3a1412; transition: opacity .05s; }
+.v-fnd path.on, .v-fnd circle.on { fill: #ff2d20; filter: drop-shadow(0 0 3px #ff2d20); }

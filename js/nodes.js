@@ -305,6 +305,51 @@ def('m_servo', {
     return [`servo_angle(${d.name}, ${G.expr(n, 'angle')})`];
   },
 });
+// ---- FND (7세그먼트) ----
+function fndHelper(G) {
+  G.helper('fnd', `FND_DIGITS = (${FND_DIGITS.map(v => '0x' + v.toString(16).toUpperCase().padStart(2, '0')).join(', ')})\n\n`
+    + 'def fnd_show(pins, value, dot=False, anode=False):\n'
+    + '    bits = 0\n'
+    + '    try:\n'
+    + '        v = int(value)\n'
+    + '        if 0 <= v <= 15:\n'
+    + '            bits = FND_DIGITS[v]\n'
+    + '    except Exception:\n'
+    + '        bits = 0\n'
+    + '    if dot:\n'
+    + '        bits |= 0x80\n'
+    + '    for i in range(8):\n'
+    + '        on = (bits >> i) & 1\n'
+    + `        ${G.B.write(G, 'pins[i]', '(not on) if anode else on')}\n`);
+}
+def('m_fnd', {
+  label: 'FND 숫자 표시', cat: 'm_io', desc: '7세그먼트에 숫자(0~9, A~F)를 표시합니다. 0~15 이외의 값은 모두 끕니다.',
+  ins: [X(), DEV(['fnd_cc', 'fnd_ca']), D('value', 'number', 0, '숫자'), D('dot', 'bool', false, '소수점')], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    fndHelper(G);
+    return [`fnd_show(${d.name}, ${G.expr(n, 'value')}, ${G.expr(n, 'dot')}, ${G.meta(d).anode ? 'True' : 'False'})`];
+  },
+});
+def('m_fnd_off', {
+  label: 'FND 끄기', cat: 'm_io', desc: '모든 세그먼트를 끕니다.', ins: [X(), DEV(['fnd_cc', 'fnd_ca'])], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    fndHelper(G);
+    return [`fnd_show(${d.name}, -1, False, ${G.meta(d).anode ? 'True' : 'False'})`];
+  },
+});
+def('m_fnd_seg', {
+  label: 'FND 세그먼트 제어', cat: 'm_io', desc: '세그먼트 하나(a~g, dp)를 직접 켜거나 끕니다.',
+  ins: [X(), DEV(['fnd_cc', 'fnd_ca']), D('on', 'bool', true, '켜기')], outs: [X('out')],
+  props: [{ k: 'seg', type: 'select', label: '세그먼트', def: 'a', opts: FND_SEGS.map(s => [s, s]) }],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    const i = Math.max(0, FND_SEGS.indexOf(n.st.seg || 'a'));
+    const v = G.meta(d).anode ? `not (${G.expr(n, 'on')})` : G.expr(n, 'on');
+    return [G.B.write(G, `${d.name}[${i}]`, v)];
+  },
+});
 def('m_np_fill', {
   label: '네오픽셀 전체 색', cat: 'm_io', desc: '모든 LED를 같은 색으로 채우고 표시합니다.', ins: [X(), DEV(['neopixel']), D('r', 'number', 0, 'R'), D('g', 'number', 0, 'G'), D('b', 'number', 255, 'B')], outs: [X('out')],
   stmt(n, G) { const d = G.dev(n); if (!d) return []; return [`${d.name}.fill((int(${G.expr(n, 'r')}), int(${G.expr(n, 'g')}), int(${G.expr(n, 'b')})))`, G.B.npShow(d.name)]; },
