@@ -95,3 +95,4 @@ js/app.js         앱 통합
 13. arduino nano 도 추가, 예제 포함. (→ MicroPython이 동작하는 Nano RP2040 Connect / Nano ESP32 추가)
 14. 구형 아두이노를 위한 최적의 방법은? (→ Arduino C++ 코드 생성 + 노드 그래프 시뮬레이션 방식으로 Uno R3 / Nano(ATmega328P) 추가)
 15. 기본 입출력에 FND (애노드공통, 캐소드 공통) 추가
+16. 부저 소리 블럭에 계이름(2옥타브) 선택 가능하게

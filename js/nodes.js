@@ -279,13 +279,35 @@ def('m_joystick', {
     return `round(${G.B.adcRead(`${d.name}_${port}`)} * 200 / ${G.B.adcMax} - 100)`;
   },
 });
+// 계이름 2옥타브 (4옥타브 도 ~ 5옥타브 시, 평균율 A4=440Hz)
+const NOTE_NAMES = [['C', '도'], ['C#', '도#'], ['D', '레'], ['D#', '레#'], ['E', '미'], ['F', '파'], ['F#', '파#'], ['G', '솔'], ['G#', '솔#'], ['A', '라'], ['A#', '라#'], ['B', '시']];
+const NOTE_FREQ = {};
+const NOTE_OPTS = [];
+for (const oct of [4, 5]) {
+  NOTE_NAMES.forEach(([en, ko], i) => {
+    const key = en + oct;
+    const f = Math.round(440 * Math.pow(2, (i - 9 + (oct - 4) * 12) / 12));
+    NOTE_FREQ[key] = f;
+    NOTE_OPTS.push([key, `${ko}${oct} (${key}) ${f}Hz`]);
+  });
+}
+const NOTE_PROPS = [
+  { k: 'mode', type: 'select', label: '입력', def: 'hz', opts: [['hz', '주파수(Hz)'], ['note', '계이름']] },
+  { k: 'note', type: 'select', label: '계이름', def: 'C4', opts: NOTE_OPTS },
+];
+// 입력 방식이 '계이름'이면 선택한 음의 주파수를, 아니면 freq 포트 값을 사용
+const noteFreq = (n, G) => n.st.mode === 'note' ? String(NOTE_FREQ[n.st.note] || NOTE_FREQ.C4) : G.expr(n, 'freq');
+
 def('m_buzzer', {
-  label: '부저 소리', cat: 'm_io', desc: '주파수(Hz)로 지정 시간(ms) 동안 소리를 냅니다. 시간 0 = 계속', ins: [X(), DEV(['buzzer']), D('freq', 'number', 440, '주파수'), D('ms', 'number', 200, '시간(ms)')], outs: [X('out')],
+  label: '부저 소리', cat: 'm_io',
+  desc: '주파수(Hz) 또는 계이름(4~5옥타브)으로 지정 시간(ms) 동안 소리를 냅니다. 시간 0 = 계속. 입력을 "계이름"으로 두면 주파수 포트는 무시됩니다.',
+  ins: [X(), DEV(['buzzer']), D('freq', 'number', 440, '주파수'), D('ms', 'number', 200, '시간(ms)')], outs: [X('out')],
+  props: NOTE_PROPS,
   stmt(n, G) {
     const d = G.dev(n); if (!d) return [];
     if (!G.B.pico) G.imp('import music');
     G.helper('tone', G.B.h.tone);
-    return [`tone(${d.name}, ${G.expr(n, 'freq')}, ${G.expr(n, 'ms')})`];
+    return [`tone(${d.name}, ${noteFreq(n, G)}, ${G.expr(n, 'ms')})`];
   },
 });
 def('m_buzzer_off', {
@@ -555,8 +577,10 @@ def('mb_sensors', {
   expr: (n, G, port) => ({ t: 'temperature()', l: 'display.read_light_level()', s: 'microphone.sound_level()', h: 'compass.heading()' })[port],
 });
 def('mb_tone', {
-  label: '스피커 음 재생', cat: 'mb', boards: MB, desc: '내장 스피커(와 P0)로 주파수(Hz)를 재생합니다.', ins: [X(), D('freq', 'number', 440, '주파수'), D('ms', 'number', 300, '시간(ms)')], outs: [X('out')],
-  stmt(n, G) { G.imp('import music'); return [`music.pitch(int(${G.expr(n, 'freq')}), int(${G.expr(n, 'ms')}))`]; },
+  label: '스피커 음 재생', cat: 'mb', boards: MB, desc: '내장 스피커(와 P0)로 주파수(Hz) 또는 계이름(4~5옥타브)을 재생합니다.',
+  ins: [X(), D('freq', 'number', 440, '주파수'), D('ms', 'number', 300, '시간(ms)')], outs: [X('out')],
+  props: NOTE_PROPS,
+  stmt(n, G) { G.imp('import music'); return [`music.pitch(int(${noteFreq(n, G)}), int(${G.expr(n, 'ms')}))`]; },
 });
 def('mb_melody', {
   label: '멜로디 재생', cat: 'mb', boards: MB, desc: '내장 멜로디를 재생합니다 (music.play).', ins: [X()], outs: [X('out')],

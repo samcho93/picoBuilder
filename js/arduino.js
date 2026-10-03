@@ -242,7 +242,9 @@ const CPP_STMT = {
   m_buzzer: (n, G) => {
     const d = G.dev(n); if (!d) return [];
     const ms = G.expr(n, 'ms');
-    return [`tone(${d.name}, ${G.expr(n, 'freq')}, ${ms});`, `delay(${ms});`];
+    const freq = n.st.mode === 'note' ? String(NOTE_FREQ[n.st.note] || NOTE_FREQ.C4) : G.expr(n, 'freq');
+    const cm = n.st.mode === 'note' ? `  // ${(NOTE_OPTS.find(o => o[0] === (n.st.note || 'C4')) || [])[1] || ''}` : '';
+    return [`tone(${d.name}, ${freq}, ${ms});${cm}`, `delay(${ms});`];
   },
   m_buzzer_off: (n, G) => { const d = G.dev(n); return d ? [`noTone(${d.name});`] : []; },
   m_servo: (n, G) => { const d = G.dev(n); return d ? [`${d.name}.write(constrain(${G.expr(n, 'angle')}, 0, 180));`] : []; },
