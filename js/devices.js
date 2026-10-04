@@ -513,6 +513,122 @@ function fndDevice(anode) {
 DEVICES.fnd_cc = fndDevice(false);
 DEVICES.fnd_ca = fndDevice(true);
 
+// ---- RP2040-Zero 미니 실습보드 (7세그 + LED4 + 버튼4 + 가변저항 + 부저) ----
+// 회로: A~G = GP0~GP6(캐소드 공통, DP 미연결) / D1~D4 = GP7~GP10 / 부저 = GP11(PNP, LOW일 때 울림)
+//       SW4~SW1 = GP12~GP15(누르면 GND) / 가변저항 = GP29(ADC3)
+const SHIELD = {
+  seg: ['GP0', 'GP1', 'GP2', 'GP3', 'GP4', 'GP5', 'GP6'],
+  led: ['GP7', 'GP8', 'GP9', 'GP10'],
+  buzzer: 'GP11',
+  sw: ['GP15', 'GP14', 'GP13', 'GP12'],   // SW1~SW4
+  pot: 'GP29',
+};
+const SHIELD_PINS = ['5V', 'GND', '3V3', 'GP29', 'GP28', 'GP27', 'GP26', 'GP15', 'GP14',
+  'GP0', 'GP1', 'GP2', 'GP3', 'GP4', 'GP5', 'GP6', 'GP7', 'GP8', 'GP13', 'GP12', 'GP11', 'GP10', 'GP9'];
+
+function shieldHTML(n, big) {
+  const seg = Object.entries(FND_SHAPE).map(([k, d]) => `<path class="sseg" data-sseg="${k}" d="${d}" transform="translate(66,34) scale(0.62)"/>`).join('');
+  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="${48 + i * 32}" cy="112" r="6"/>
+    <text class="slbl" x="${48 + i * 32}" y="126">D${i + 1}</text>`).join('');
+  const btns = [0, 1, 2, 3].map(i => {
+    const x = 48 + (i % 2) * 62, y = 158 + ((i / 2) | 0) * 46;
+    return `<g class="sbtn" data-hold="sw${i + 1}"><rect x="${x}" y="${y}" width="40" height="34" rx="4"/>
+      <circle cx="${x + 20}" cy="${y + 17}" r="9"/><text class="slbl" x="${x + 20}" y="${y + 46}">SW${i + 1}</text></g>`;
+  }).join('');
+  return `<svg class="v-shield${big ? ' big' : ''}" viewBox="0 0 200 252">
+    <rect class="zero" x="30" y="0" width="140" height="30" rx="3"/><rect class="usbc" x="84" y="-4" width="32" height="11" rx="3"/>
+    <text class="zlbl" x="100" y="22">RP2040-Zero</text>
+    <rect class="pcb" x="6" y="26" width="188" height="222" rx="5"/>
+    <g class="hdr">${[...Array(9)].map((_, i) => `<circle cx="14" cy="${44 + i * 20}" r="4"/><circle cx="186" cy="${44 + i * 20}" r="4"/>`).join('')}
+      ${[...Array(5)].map((_, i) => `<circle cx="${62 + i * 19}" cy="242" r="4"/>`).join('')}</g>
+    <rect class="fndbg" x="60" y="30" width="80" height="66" rx="3"/>${seg}
+    ${leds}
+    <g class="pot" data-pot><circle cx="26" cy="150" r="13"/><line x1="26" y1="150" x2="26" y2="139"/></g>
+    <text class="slbl" x="26" y="172">RV1</text>
+    <g class="buzz"><circle cx="174" cy="150" r="12"/><circle class="hole" cx="174" cy="150" r="3"/></g>
+    <text class="slbl" x="174" y="172">BZ1</text>
+    ${btns}
+  </svg>`;
+}
+
+function shieldRender(n, ctx, el) {
+  const vio = ctx.sim.vio();
+  const gnd = ctx.v('GND');
+  const lit = p => { const v = ctx.v(p); return v == null || gnd == null ? 0 : clamp((v - gnd) / vio, 0, 1); };
+  if (!el._segs) { el._segs = [...el.querySelectorAll('[data-sseg]')]; el._leds = [...el.querySelectorAll('[data-sled]')]; }
+  el._segs.forEach((s, i) => {
+    const b = lit(SHIELD.seg[i]);
+    const k = Math.round(b * 8);
+    if (s._k !== k) { s._k = k; s.style.opacity = 0.1 + b * 0.9; s.classList.toggle('on', b > 0.15); }
+  });
+  el._leds.forEach((d, i) => {
+    const b = lit(SHIELD.led[i]);
+    const k = Math.round(b * 8);
+    if (d._k !== k) { d._k = k; d.style.opacity = 0.25 + b * 0.75; d.classList.toggle('on', b > 0.15); }
+  });
+  const knob = el.querySelector('.pot line');
+  if (knob) knob.setAttribute('transform', `rotate(${-135 + (n.st.pos / 100) * 270} 26 150)`);
+  el.querySelectorAll('[data-hold]').forEach(b => b.classList.toggle('on', !!n.st[b.dataset.hold]));
+  // 부저: PNP 구동이라 LOW(또는 PWM)일 때 울림
+  const pwm = ctx.pwm(SHIELD.buzzer), v = ctx.v(SHIELD.buzzer);
+  const on = ctx.sim.running && gnd === 0 && (pwm ? pwm.duty > 0 && pwm.duty < 65535 : v === 0);
+  Sound.set(n.id, pwm && pwm.freq ? pwm.freq : 2000, on);
+  el.querySelector('.buzz').classList.toggle('on', on);
+}
+
+DEVICES.zeroshield = {
+  label: 'RP2040-Zero 미니 실습보드', cat: 'io', icon: '🧩', prefix: 'board',
+  desc: 'RP2040-Zero에 끼워 쓰는 올인원 실습보드: 7세그먼트(캐소드 공통, A~G=GP0~GP6), LED 4개(GP7~GP10), 버튼 4개(SW1~SW4=GP15~GP12, 누르면 GND), 가변저항(GP29), 부저(GP11, PNP라 LOW에서 울림). 노드를 추가하면 RP2040-Zero 핀에 자동으로 연결됩니다.',
+  pins: SHIELD_PINS.map(p => ({ n: p, role: p === 'GND' ? 'gnd' : p === '3V3' || p === '5V' ? 'vcc5' : 'io' })),
+  controls: [{ k: 'pos', type: 'range', label: '가변저항', min: 0, max: 100, unit: '%' }],
+  init: () => ({ pos: 50, sw1: false, sw2: false, sw3: false, sw4: false }),
+  view: n => shieldHTML(n, false),
+  render: (n, ctx, el) => shieldRender(n, ctx, el),
+  closed: n => SHIELD.sw.map((p, i) => n.st['sw' + (i + 1)] ? [p, 'GND'] : null).filter(Boolean),
+  outputs(n, ctx) {
+    const v3 = ctx.v('3V3'), g = ctx.v('GND');
+    if (v3 == null || g == null) return null;
+    return { [SHIELD.pot]: g + (v3 - g) * clamp(n.st.pos / 100, 0, 1) };
+  },
+  stop: n => Sound.set(n.id, 0, false),
+  // 보드에 추가하면 RP2040-Zero 헤더에 자동 배선
+  onAdd(n, app, editor) {
+    const b = app.boardNode();
+    if (!b || b.type !== 'rp2040zero') { app.toast('이 실습보드는 RP2040-Zero 전용입니다. 보드를 RP2040-Zero로 바꾼 뒤 다시 추가하세요', 'warn'); return; }
+    const bd = BOARDS.rp2040zero;
+    let cnt = 0;
+    for (const p of SHIELD_PINS) {
+      const key = /^GP\d+$/.test(p) ? bd.gpioKey(+p.slice(2)) : Object.values(bd.pins).find(x => x.name === p)?.num;
+      if (!key) continue;
+      if (editor.connect(`${b.id}:${key}`, `${n.id}:${p}`)) cnt++;
+    }
+    n.x = b.x + 330; n.y = b.y;
+    if (n.el) { n.el.style.left = n.x + 'px'; n.el.style.top = n.y + 'px'; }
+    editor.drawWires();
+    app.toast(`실습보드를 RP2040-Zero에 연결했습니다 (${cnt}핀)`, 'ok');
+  },
+  setup(n, C) {
+    if (C.board !== 'rp2040zero') C.warn('이 실습보드는 RP2040-Zero 전용입니다');
+    const g = p => C.gpio(p);
+    const miss = [];
+    const pins = k => SHIELD[k].map(p => { const x = g(p); if (x == null) miss.push(p); return x; });
+    const seg = pins('seg'), led = pins('led'), sw = pins('sw');
+    const bz = g(SHIELD.buzzer), pot = g(SHIELD.pot);
+    if (bz == null) miss.push(SHIELD.buzzer);
+    if (pot == null) miss.push(SHIELD.pot);
+    if (miss.length) return C.warn(`보드 핀이 연결되지 않았습니다: ${miss.join(', ')} (노드를 지우고 다시 추가하면 자동 연결됩니다)`);
+    const O = x => C.B.out(x);
+    return [
+      `${n.name}_seg = [${seg.map(O).join(', ')}]  # A~G (캐소드 공통)`,
+      `${n.name}_led = [${led.map(O).join(', ')}]  # D1~D4`,
+      `${n.name}_sw = [${sw.map(x => `Pin(${x}, Pin.IN, Pin.PULL_UP)`).join(', ')}]  # SW1~SW4 (누르면 0)`,
+      `${n.name}_pot = ADC(Pin(${pot}))`,
+      `${n.name}_buzzer = PWM(Pin(${bz}))  # PNP 구동: duty 65535 = 무음`,
+      `${n.name}_buzzer.duty_u16(65535)`,
+    ];
+  },
+};
+
 // ---------- I2C 공통 ----------
 function i2cSetup(ctor, lib) {
   return function (n, C) {

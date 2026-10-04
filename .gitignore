@@ -1,3 +1,4 @@
 .claude/
 __pycache__/
 *.log
+_ref/

@@ -290,6 +290,7 @@ class Editor {
     this.mountNode(n);
     if (d) this.fillDevSelects();
     this.app.sim.invalidate();
+    if (d && d.onAdd && !extra.st) { try { d.onAdd(n, this.app, this); } catch (e) { console.error(e); } }
     this.select({ kind: 'node', id: n.id });
     this.app.changed({});
     return n;

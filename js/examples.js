@@ -300,6 +300,232 @@ while True:
 // 예제에서 노드 입력 기본값을 지정할 때 사용
 function nodeSt(E, id) { return E._find(id).st; }
 
+// ---------------- RP2040-Zero 미니 실습보드 예제 ----------------
+// 실습보드를 추가하고 RP2040-Zero 헤더(23핀)에 모두 배선
+function addShield(E, x = 860, y = 40) {
+  const sh = E.dev('zeroshield', x, y, { name: 'board' });
+  const bd = BOARDS.rp2040zero;
+  for (const p of SHIELD_PINS) {
+    const key = /^GP\d+$/.test(p) ? bd.gpioKey(+p.slice(2)) : Object.values(bd.pins).find(v => v.name === p)?.num;
+    if (key) E.w(`zero:${key}`, `${sh}:${p}`);
+  }
+  return sh;
+}
+
+EXAMPLES.push(
+  {
+    group: '🧩 RP2040-Zero 미니 실습보드', board: 'rp2040zero',
+    name: 'Ⓢ① LED 흐르기 (나이트 라이더)', desc: 'D1→D4 순서로 LED가 흐르듯 켜집니다',
+    build: () => buildProject('실습보드 LED 흐르기', E => {
+      const sh = addShield(E);
+      const loop = E.node('ev_loop', 1180, 40, { delay: 0 });
+      const rep = E.node('repeat', 1360, 40);
+      Object.assign(nodeSt(E, rep), { count: 4 });
+      const on = E.node('sh_led', 1600, 40);
+      const w = E.node('wait', 1800, 40);
+      const off = E.node('sh_led', 1980, 40);
+      Object.assign(nodeSt(E, w), { ms: 120 });
+      Object.assign(nodeSt(E, off), { on: false });
+      E.flow(loop, rep);
+      E.w(rep + ':body', on + ':in'); E.flow(on, w, off);
+      [on, off].forEach(x => E.ref(sh, x));
+      E.data(rep + '.i', on + '.i'); E.data(rep + '.i', off + '.i');
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ② 버튼 4개 → LED 4개', desc: 'SW1~SW4를 누르면 각각 D1~D4가 켜집니다',
+    build: () => buildProject('실습보드 버튼 LED', E => {
+      const sh = addShield(E);
+      const loop = E.node('ev_loop', 1180, 40, { delay: 20 });
+      const ids = [loop];
+      for (let i = 0; i < 4; i++) {
+        const led = E.node('sh_led', 1360 + i * 230, 40);
+        Object.assign(nodeSt(E, led), { i });
+        const btn = E.node('sh_btn', 1360 + i * 230, 220, { i: String(i) });
+        E.ref(sh, led); E.ref(sh, btn);
+        E.data(btn + '.p', led + '.on');
+        ids.push(led);
+      }
+      E.flow(...ids);
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ③ 7세그 0~9 카운터', desc: '1초마다 숫자가 올라가고 부저가 짧게 울립니다',
+    build: () => buildProject('실습보드 카운터', E => {
+      const sh = addShield(E);
+      const loop = E.node('ev_loop', 1180, 40, { delay: 1000 });
+      const seg = E.node('sh_seg', 1360, 40);
+      const bz = E.node('sh_buzzer', 1560, 40, { mode: 'note', note: 'C5' });
+      const inc = E.node('var_change', 1800, 40, { name: 'count' });
+      Object.assign(nodeSt(E, bz), { ms: 60 });
+      E.flow(loop, seg, bz, inc);
+      E.ref(sh, seg); E.ref(sh, bz);
+      const g = E.node('var_get', 1180, 230, { name: 'count' });
+      const md = E.node('math', 1360, 230, { op: '%' });
+      Object.assign(nodeSt(E, md), { b: 10 });
+      E.data(g + '.value', md + '.a');
+      E.data(md + '.r', seg + '.value');
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ④ 버튼으로 숫자 증감', desc: 'SW1 = +1, SW2 = −1 (버튼 인터럽트), 7세그에 0~9 표시',
+    build: () => buildProject('실습보드 숫자 증감', E => {
+      const sh = addShield(E);
+      const up = E.node('ev_sh_btn', 1180, 40, { i: '0' });
+      const incU = E.node('var_change', 1360, 40, { name: 'count' });
+      Object.assign(nodeSt(E, incU), { by: 1 });
+      E.flow(up, incU); E.ref(sh, up);
+      const dn = E.node('ev_sh_btn', 1180, 190, { i: '1' });
+      const incD = E.node('var_change', 1360, 190, { name: 'count' });
+      Object.assign(nodeSt(E, incD), { by: -1 });
+      E.flow(dn, incD); E.ref(sh, dn);
+      const loop = E.node('ev_loop', 1180, 340, { delay: 50 });
+      const seg = E.node('sh_seg', 1600, 340);
+      E.flow(loop, seg); E.ref(sh, seg);
+      const g = E.node('var_get', 1180, 470, { name: 'count' });
+      const cs = E.node('constrain', 1380, 470);
+      Object.assign(nodeSt(E, cs), { lo: 0, hi: 9 });
+      E.data(g + '.value', cs + '.x');
+      E.data(cs + '.r', seg + '.value');
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ⑤ 가변저항 → 7세그 + LED 막대', desc: 'RV1을 돌리면 숫자(0~9)와 LED 레벨이 함께 바뀝니다',
+    build: () => buildProject('실습보드 가변저항', E => {
+      const sh = addShield(E);
+      const loop = E.node('ev_loop', 1180, 40, { delay: 100 });
+      const seg = E.node('sh_seg', 1380, 40);
+      const bar = E.node('sh_led_bar', 1580, 40);
+      E.flow(loop, seg, bar);
+      E.ref(sh, seg); E.ref(sh, bar);
+      const p1 = E.node('sh_pot', 1180, 230, { unit: 'd9' });
+      E.ref(sh, p1);
+      E.data(p1 + '.v', seg + '.value');
+      const p2 = E.node('sh_pot', 1180, 370, { unit: 'pct' });
+      const map = E.node('map', 1380, 370);
+      const rd = E.node('mathfn', 1580, 370, { fn: 'int' });
+      Object.assign(nodeSt(E, map), { b: 100, d: 4.9 });
+      E.ref(sh, p2);
+      E.data(p2 + '.v', map + '.x'); E.data(map + '.r', rd + '.x'); E.data(rd + '.r', bar + '.count');
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ⑥ 버튼 피아노 (도레미파)', desc: 'SW1~SW4가 각각 도·레·미·파, 누르면 7세그에도 표시',
+    build: () => buildProject('실습보드 피아노', E => {
+      const sh = addShield(E);
+      ['C5', 'D5', 'E5', 'F5'].forEach((note, i) => {
+        const ev = E.node('ev_sh_btn', 1180, 40 + i * 170, { i: String(i) });
+        const seg = E.node('sh_seg', 1360, 40 + i * 170);
+        const bz = E.node('sh_buzzer', 1560, 40 + i * 170, { mode: 'note', note });
+        Object.assign(nodeSt(E, seg), { value: i + 1 });
+        Object.assign(nodeSt(E, bz), { ms: 300 });
+        E.flow(ev, seg, bz);
+        E.ref(sh, ev); E.ref(sh, seg); E.ref(sh, bz);
+      });
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ⑦ 주사위 (SW1)', desc: 'SW1을 누르면 LED가 돌다가 1~6 숫자가 멈춰 표시됩니다',
+    build: () => buildProject('실습보드 주사위', E => {
+      const sh = addShield(E);
+      const ev = E.node('ev_sh_btn', 1180, 40, { i: '0' });
+      const rep = E.node('repeat', 1360, 40);
+      Object.assign(nodeSt(E, rep), { count: 12 });
+      const seg1 = E.node('sh_seg', 1600, 40);
+      const w = E.node('wait', 1800, 40);
+      Object.assign(nodeSt(E, w), { ms: 60 });
+      const rnd1 = E.node('random', 1600, 220);
+      Object.assign(nodeSt(E, rnd1), { lo: 1, hi: 6 });
+      E.flow(ev, rep);
+      E.w(rep + ':body', seg1 + ':in'); E.flow(seg1, w);
+      E.data(rnd1 + '.r', seg1 + '.value');
+      const set = E.node('var_set', 1600, 360, { name: 'dice' });
+      const rnd2 = E.node('random', 1380, 360);
+      Object.assign(nodeSt(E, rnd2), { lo: 1, hi: 6 });
+      const seg2 = E.node('sh_seg', 1800, 360);
+      const bz = E.node('sh_buzzer', 2000, 360, { mode: 'note', note: 'G5' });
+      Object.assign(nodeSt(E, bz), { ms: 200 });
+      E.w(rep + ':out', set + ':in');
+      E.flow(set, seg2, bz);
+      E.data(rnd2 + '.r', set + '.value');
+      const g = E.node('var_get', 1800, 520, { name: 'dice' });
+      E.data(g + '.value', seg2 + '.value');
+      [seg1, seg2, bz, ev].forEach(x => E.ref(sh, x));
+    }, 'rp2040zero'),
+  },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ⑧ [코드] 반응속도 게임', desc: 'Python 직접 작성: LED가 켜지면 SW1을 빨리 누르고, 기록을 7세그와 콘솔에 표시',
+    build: () => buildProject('실습보드 반응속도 (코드)', E => {
+      addShield(E);
+      return {
+        codeMode: 'manual', code: `from machine import Pin, ADC, PWM
+import time, random
+
+# RP2040-Zero 미니 실습보드
+seg = [Pin(i, Pin.OUT) for i in range(0, 7)]      # A~G (캐소드 공통)
+led = [Pin(i, Pin.OUT) for i in range(7, 11)]     # D1~D4
+sw = [Pin(i, Pin.IN, Pin.PULL_UP) for i in (15, 14, 13, 12)]  # SW1~SW4
+pot = ADC(Pin(29))
+buzzer = PWM(Pin(11))
+buzzer.duty_u16(65535)                            # PNP 구동: 65535 = 무음
+
+DIGITS = (0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F)
+
+
+def show(value):
+    bits = DIGITS[value] if 0 <= value <= 9 else 0
+    for i in range(7):
+        seg[i].value((bits >> i) & 1)
+
+
+def tone(freq, ms):
+    buzzer.freq(freq)
+    buzzer.duty_u16(32768)
+    time.sleep_ms(ms)
+    buzzer.duty_u16(65535)
+
+
+def all_led(on):
+    for p in led:
+        p.value(on)
+
+
+print('SW1을 눌러 시작하세요')
+while True:
+    show(0)
+    all_led(0)
+    while sw[0].value() == 1:
+        time.sleep_ms(10)
+    while sw[0].value() == 0:
+        time.sleep_ms(10)
+
+    time.sleep_ms(random.randint(1000, 3000))
+    all_led(1)
+    tone(880, 60)
+    start = time.ticks_ms()
+    while sw[0].value() == 1:
+        time.sleep_ms(1)
+    ms = time.ticks_diff(time.ticks_ms(), start)
+    all_led(0)
+    print('반응 시간:', ms, 'ms')
+
+    # 0.1초 단위로 7세그에 표시 (최대 9)
+    show(min(9, ms // 100))
+    tone(1200 if ms < 300 else 400, 200)
+    time.sleep_ms(1500)
+`,
+      };
+    }, 'rp2040zero'),
+  },
+);
+
 // ---------------- 구형 Arduino (Uno R3 / Nano 328P) 예제 ----------------
 EXAMPLES.push(
   {

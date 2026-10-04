@@ -72,6 +72,8 @@ class App {
     const cpp = this.lang() === 'cpp';
     document.getElementById('btnSavePy').textContent = cpp ? '💾 .ino 저장' : '💾 .py 저장';
     document.querySelector('#rtabs [data-tab=code]').textContent = cpp ? '🅰 Arduino 코드' : '🐍 Python 코드';
+    document.getElementById('shieldTab').hidden = t !== 'rp2040zero';
+    if (t !== 'rp2040zero' && document.getElementById('tab-shield').classList.contains('on')) this.switchTab('rtabs', 'code');
     document.getElementById('btnOpenPy').style.display = cpp ? 'none' : '';
     for (const id of ['btnUpload', 'btnRunPico']) {
       const b = document.getElementById(id);
@@ -408,6 +410,52 @@ class App {
     }
   }
 
+  // ---------- 실습보드 큰 화면 ----------
+  renderShieldPanel(sim) {
+    const pane = document.getElementById('tab-shield');
+    if (!pane.classList.contains('on')) return;
+    const node = this.circuit.nodes.find(n => n.type === 'zeroshield');
+    const host = document.getElementById('shieldView');
+    if (!node) {
+      if (host.dataset.id !== 'none') {
+        host.dataset.id = 'none';
+        host.innerHTML = `<div class="shield-empty">팔레트의 <b>🧩 RP2040-Zero 미니 실습보드</b>를 추가하면<br>여기에 실제 보드 모양의 큰 화면이 나타납니다.<br><br>보드를 <b>RP2040-Zero</b>로 선택한 뒤 추가하면 핀이 자동으로 연결됩니다.</div>`;
+      }
+      return;
+    }
+    if (host.dataset.id !== node.id) {
+      host.dataset.id = node.id;
+      host.innerHTML = shieldHTML(node, true);
+      host.querySelectorAll('[data-hold]').forEach(b => {
+        const k = b.dataset.hold;
+        const set = v => { if (node.st[k] === v) return; node.st[k] = v; this.sim.invalidate(); this.sim.step(); };
+        b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); set(true); });
+        b.addEventListener('pointerup', () => set(false));
+        b.addEventListener('pointercancel', () => set(false));
+        b.addEventListener('pointerleave', () => set(false));
+      });
+      const pot = host.querySelector('[data-pot]');
+      const drag = e => {
+        const r = pot.getBoundingClientRect();
+        let a = Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI + 90;
+        if (a > 180) a -= 360;
+        node.st.pos = clamp(Math.round((a + 135) / 270 * 100), 0, 100);
+        this.sim.step();
+        const el = node.el && node.el.querySelector('input[data-k=pos]');
+        if (el) el.value = node.st.pos;
+      };
+      pot.addEventListener('pointerdown', e => {
+        pot.setPointerCapture(e.pointerId); drag(e);
+        const up = () => { pot.removeEventListener('pointermove', drag); pot.removeEventListener('pointerup', up); };
+        pot.addEventListener('pointermove', drag); pot.addEventListener('pointerup', up);
+      });
+    }
+    shieldRender(node, sim.ctx(node), host.firstElementChild);
+    const st = document.getElementById('shieldState');
+    const txt = sim.running ? `▶ 실행 중 · 가변저항 ${node.st.pos}%` : '■ 정지 — F5로 시뮬레이션을 시작하세요';
+    if (st.textContent !== txt) st.textContent = txt;
+  }
+
   // ---------- 콘솔 ----------
   log(s, cls) {
     const el = document.getElementById('simLog');
@@ -704,6 +752,7 @@ class App {
     // 보드 상태 (핀 표시, 내장 LED/화면 등)
     const bn = this.boardNode();
     if (bn && bn.el) BOARDS[bn.type].render(bn, sim);
+    this.renderShieldPanel(sim);
     this.editor.renderLive();
     const sb = document.getElementById('shortBanner');
     const sh = sim.shortNets.size > 0;

@@ -327,6 +327,85 @@ def('m_servo', {
     return [`servo_angle(${d.name}, ${G.expr(n, 'angle')})`];
   },
 });
+// ---- RP2040-Zero 미니 실습보드 ----
+const SHIELD_DEV = DEV(['zeroshield'], '실습보드');
+const SH = ['rp2040zero'];
+function shieldSeg(G) {
+  G.helper('seg_show', `SEG_DIGITS = (${FND_DIGITS.slice(0, 10).map(v => '0x' + v.toString(16).toUpperCase().padStart(2, '0')).join(', ')})\n\n`
+    + 'def seg_show(pins, value):\n'
+    + '    bits = 0\n'
+    + '    try:\n'
+    + '        v = int(value)\n'
+    + '        if 0 <= v <= 9:\n'
+    + '            bits = SEG_DIGITS[v]\n'
+    + '    except Exception:\n'
+    + '        bits = 0\n'
+    + '    for i in range(7):\n'
+    + `        ${G.B.write(G, 'pins[i]', '(bits >> i) & 1')}\n`);
+}
+def('sh_seg', {
+  label: '[실습보드] 7세그 숫자', cat: 'm_io', boards: SH, desc: '미니보드 7세그먼트에 0~9를 표시합니다 (범위를 벗어나면 끔).',
+  ins: [X(), SHIELD_DEV, D('value', 'number', 0, '숫자')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; shieldSeg(G); return [`seg_show(${d.name}_seg, ${G.expr(n, 'value')})`]; },
+});
+def('sh_seg_off', {
+  label: '[실습보드] 7세그 끄기', cat: 'm_io', boards: SH, desc: '모든 세그먼트를 끕니다.', ins: [X(), SHIELD_DEV], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; shieldSeg(G); return [`seg_show(${d.name}_seg, -1)`]; },
+});
+def('sh_led', {
+  label: '[실습보드] LED 켜기', cat: 'm_io', boards: SH, desc: 'LED 번호(0=D1 ~ 3=D4)를 켜거나 끕니다. 번호를 값 포트로 연결하면 반복문 안에서 순차 제어할 수 있습니다.',
+  ins: [X(), SHIELD_DEV, D('i', 'number', 0, '번호(0~3)'), D('on', 'bool', true, '켜기')], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; return [G.B.write(G, `${d.name}_led[int(${G.expr(n, 'i')}) % 4]`, G.expr(n, 'on'))]; },
+});
+def('sh_led_bar', {
+  label: '[실습보드] LED 막대', cat: 'm_io', boards: SH, desc: 'D1부터 개수(0~4)만큼 LED를 켭니다 (레벨 표시).',
+  ins: [X(), SHIELD_DEV, D('count', 'number', 2, '개수')], outs: [X('out')],
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    G.helper('led_bar', 'def led_bar(leds, count):\n    for i in range(len(leds)):\n'
+      + `        ${G.B.write(G, 'leds[i]', 'i < count')}\n`);
+    return [`led_bar(${d.name}_led, ${G.expr(n, 'count')})`];
+  },
+});
+def('sh_btn', {
+  label: '[실습보드] 버튼 눌림?', cat: 'm_io', boards: SH, desc: 'SW1~SW4가 눌려 있으면 참 (내부 풀업, 누르면 0).',
+  ins: [SHIELD_DEV], outs: [OUT('p', 'bool', '눌림')],
+  props: [{ k: 'i', type: 'select', label: '버튼', def: '0', opts: [['0', 'SW1'], ['1', 'SW2'], ['2', 'SW3'], ['3', 'SW4']] }],
+  expr(n, G) { const d = G.dev(n); if (!d) return 'False'; return `${G.B.read(`${d.name}_sw[${+n.st.i || 0}]`)} == 0`; },
+});
+def('ev_sh_btn', {
+  label: '[실습보드] 버튼 눌렸을 때', cat: 'event', boards: SH, desc: 'SW1~SW4를 누르는 순간 실행합니다 (인터럽트 + 디바운스).',
+  ins: [SHIELD_DEV], outs: [X('out', '실행')],
+  props: [{ k: 'i', type: 'select', label: '버튼', def: '0', opts: [['0', 'SW1'], ['1', 'SW2'], ['2', 'SW3'], ['3', 'SW4']] }],
+});
+def('sh_pot', {
+  label: '[실습보드] 가변저항 값', cat: 'm_io', boards: SH, desc: '가변저항(GP29) 값을 읽습니다.',
+  ins: [SHIELD_DEV], outs: [OUT('v', 'number', '값')],
+  props: [{ k: 'unit', type: 'select', label: '단위', def: 'pct', opts: [['pct', '0~100%'], ['raw', '0~65535'], ['d9', '0~9 (7세그용)'], ['volt', '전압(V)']] }],
+  expr(n, G) {
+    const d = G.dev(n); if (!d) return '0';
+    const raw = `${d.name}_pot.read_u16()`;
+    if (n.st.unit === 'raw') return raw;
+    if (n.st.unit === 'volt') return `round(${raw} * 3.3 / 65535, 2)`;
+    if (n.st.unit === 'd9') return `min(9, ${raw} * 10 // 65536)`;
+    return `round(${raw} * 100 / 65535)`;
+  },
+});
+def('sh_buzzer', {
+  label: '[실습보드] 부저 소리', cat: 'm_io', boards: SH, desc: '미니보드 부저로 소리를 냅니다 (주파수 또는 계이름, 시간 0 = 계속).',
+  ins: [X(), SHIELD_DEV, D('freq', 'number', 440, '주파수'), D('ms', 'number', 200, '시간(ms)')], outs: [X('out')],
+  props: NOTE_PROPS,
+  stmt(n, G) {
+    const d = G.dev(n); if (!d) return [];
+    G.helper('board_tone', 'def board_tone(b, freq, ms):\n    b.freq(int(freq))\n    b.duty_u16(32768)\n    if ms > 0:\n        time.sleep_ms(int(ms))\n        b.duty_u16(65535)');
+    return [`board_tone(${d.name}_buzzer, ${noteFreq(n, G)}, ${G.expr(n, 'ms')})`];
+  },
+});
+def('sh_buzzer_off', {
+  label: '[실습보드] 부저 끄기', cat: 'm_io', boards: SH, desc: '부저를 멈춥니다.', ins: [X(), SHIELD_DEV], outs: [X('out')],
+  stmt(n, G) { const d = G.dev(n); return d ? [`${d.name}_buzzer.duty_u16(65535)`] : []; },
+});
+
 // ---- FND (7세그먼트) ----
 function fndHelper(G) {
   G.helper('fnd', `FND_DIGITS = (${FND_DIGITS.map(v => '0x' + v.toString(16).toUpperCase().padStart(2, '0')).join(', ')})\n\n`
@@ -799,7 +878,7 @@ function generateCode(graph, sim) {
     metas.set(n.id, meta);
     const T = p => n.id + ':' + p;
     const C = {
-      B, meta,
+      B, meta, board: btype,
       gpio: p => { const g = netGpio(T(p)); if (g != null) usedPins.set(g, n); return g; },
       kind: p => netKind(T(p)),
       warn: m => { warn(n, m); return []; },
@@ -1033,6 +1112,17 @@ function generateCode(graph, sim) {
         poll: [`_v = ${pv}.read_digital()`, `if _v != _prev_${n.id}${cond}:`, `    on_pin_${n.id}()`, `_prev_${n.id} = _v`],
       });
     }
+  }
+  for (const n of evs('ev_sh_btn')) {
+    const d = G.dev(n);
+    const body = G.chain(n, 'out');
+    if (!d) continue;
+    const i = +n.st.i || 0;
+    handlers.push({
+      pre: [`_last_${n.id} = 0`], head: `def on_sw_${n.id}(p):`, extraGlobal: `_last_${n.id}`,
+      guard: [`    if time.ticks_diff(time.ticks_ms(), _last_${n.id}) < 200:`, '        return', `    _last_${n.id} = time.ticks_ms()`],
+      body, after: [`${d.name}_sw[${i}].irq(trigger=Pin.IRQ_FALLING, handler=on_sw_${n.id})`],
+    });
   }
   for (const n of evs('ev_button')) {
     const d = G.dev(n);

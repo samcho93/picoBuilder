@@ -443,3 +443,32 @@ body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 .v-fnd { width: 54px; height: 86px; background: #14110f; border-radius: 4px; padding: 3px; }
 .v-fnd path, .v-fnd circle { fill: #3a1412; transition: opacity .05s; }
 .v-fnd path.on, .v-fnd circle.on { fill: #ff2d20; filter: drop-shadow(0 0 3px #ff2d20); }
+/* ---------- RP2040-Zero 미니 실습보드 ---------- */
+.v-shield { width: 200px; height: 252px; }
+.v-shield .pcb { fill: #14161a; stroke: #2a2f38; }
+.v-shield .zero { fill: #0f4d22; stroke: #1b7f3b; }
+.v-shield .usbc { fill: #b9bfc3; }
+.v-shield .zlbl { fill: #9ccc9f; font-size: 7px; text-anchor: middle; font-family: Consolas, monospace; }
+.v-shield .hdr circle { fill: #c9a33a; }
+.v-shield .fndbg { fill: #0b0c0e; stroke: #333; }
+.v-shield .sseg { fill: #3a1412; }
+.v-shield .sseg.on { fill: #ff2d20; filter: drop-shadow(0 0 2px #ff2d20); }
+.v-shield .sled { fill: #35201c; }
+.v-shield .sled.on { fill: #ff8a3d; filter: drop-shadow(0 0 5px #ff8a3d); }
+.v-shield .slbl { fill: #8b949e; font-size: 7px; text-anchor: middle; font-family: Consolas, monospace; }
+.v-shield .pot circle { fill: #2b3038; stroke: #6c7686; cursor: grab; }
+.v-shield .pot line { stroke: #e8eef7; stroke-width: 2.5; stroke-linecap: round; }
+.v-shield .buzz circle { fill: #1c1f25; stroke: #555c68; }
+.v-shield .buzz .hole { fill: #0a0b0d; stroke: none; }
+.v-shield .buzz.on circle { stroke: #ffd54f; filter: drop-shadow(0 0 5px #ffd54f); }
+.v-shield .sbtn rect { fill: #e8eaee; stroke: #9aa2ae; cursor: pointer; }
+.v-shield .sbtn circle { fill: #cfd4dc; pointer-events: none; }
+.v-shield .sbtn.on rect { fill: #8ab4ff; }
+.v-shield .sbtn.on circle { fill: #3b6fd1; }
+.v-shield.big { width: 100%; height: auto; max-height: 100%; }
+#tab-shield { padding: 6px; overflow: auto; }
+#shieldView { flex: 1; display: flex; align-items: flex-start; justify-content: center; padding: 6px; min-height: 0; }
+#shieldView svg { max-height: calc(100vh - var(--top-h) - var(--bottom-h) - 110px); }
+.shieldbar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid #333; }
+.shieldbar .hint { font-size: 11px; }
+.shield-empty { color: var(--muted); text-align: center; padding: 40px 16px; line-height: 1.8; }
