@@ -527,9 +527,10 @@ const SHIELD_PINS = ['5V', 'GND', '3V3', 'GP29', 'GP28', 'GP27', 'GP26', 'GP15',
   'GP0', 'GP1', 'GP2', 'GP3', 'GP4', 'GP5', 'GP6', 'GP7', 'GP8', 'GP13', 'GP12', 'GP11', 'GP10', 'GP9'];
 
 function shieldHTML(n, big) {
-  const seg = Object.entries(FND_SHAPE).map(([k, d]) => `<path class="sseg" data-sseg="${k}" d="${d}" transform="translate(66,34) scale(0.62)"/>`).join('');
-  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="${48 + i * 32}" cy="112" r="6"/>
-    <text class="slbl" x="${48 + i * 32}" y="126">D${i + 1}</text>`).join('');
+  // 7세그 숫자는 모듈 가운데, LED 4개는 7세그 오른쪽에 세로 배치
+  const seg = Object.entries(FND_SHAPE).map(([k, d]) => `<path class="sseg" data-sseg="${k}" d="${d}" transform="translate(72,32) scale(0.64)"/>`).join('');
+  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="152" cy="${40 + i * 19}" r="5.5"/>
+    <text class="slbl start" x="162" y="${43 + i * 19}">D${i + 1}</text>`).join('');
   const btns = [0, 1, 2, 3].map(i => {
     const x = 48 + (i % 2) * 62, y = 158 + ((i / 2) | 0) * 46;
     return `<g class="sbtn" data-hold="sw${i + 1}"><rect x="${x}" y="${y}" width="40" height="34" rx="4"/>
@@ -541,7 +542,7 @@ function shieldHTML(n, big) {
     <rect class="pcb" x="6" y="26" width="188" height="222" rx="5"/>
     <g class="hdr">${[...Array(9)].map((_, i) => `<circle cx="14" cy="${44 + i * 20}" r="4"/><circle cx="186" cy="${44 + i * 20}" r="4"/>`).join('')}
       ${[...Array(5)].map((_, i) => `<circle cx="${62 + i * 19}" cy="242" r="4"/>`).join('')}</g>
-    <rect class="fndbg" x="60" y="30" width="80" height="66" rx="3"/>${seg}
+    <rect class="fndbg" x="56" y="28" width="72" height="72" rx="3"/>${seg}
     ${leds}
     <g class="pot" data-pot><circle cx="26" cy="150" r="13"/><line x1="26" y1="150" x2="26" y2="139"/></g>
     <text class="slbl" x="26" y="172">RV1</text>

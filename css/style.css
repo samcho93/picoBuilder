@@ -453,9 +453,10 @@ body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 .v-shield .fndbg { fill: #0b0c0e; stroke: #333; }
 .v-shield .sseg { fill: #3a1412; }
 .v-shield .sseg.on { fill: #ff2d20; filter: drop-shadow(0 0 2px #ff2d20); }
-.v-shield .sled { fill: #35201c; }
-.v-shield .sled.on { fill: #ff8a3d; filter: drop-shadow(0 0 5px #ff8a3d); }
+.v-shield .sled { fill: #14283c; }
+.v-shield .sled.on { fill: #3da5ff; filter: drop-shadow(0 0 6px #3da5ff); }
 .v-shield .slbl { fill: #8b949e; font-size: 7px; text-anchor: middle; font-family: Consolas, monospace; }
+.v-shield .slbl.start { text-anchor: start; }
 .v-shield .pot circle { fill: #2b3038; stroke: #6c7686; cursor: grab; }
 .v-shield .pot line { stroke: #e8eef7; stroke-width: 2.5; stroke-linecap: round; }
 .v-shield .buzz circle { fill: #1c1f25; stroke: #555c68; }
