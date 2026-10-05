@@ -71,12 +71,17 @@ function digitalSetup(node, C, pin, mode, suffix = '', pull = 'NONE') {
 // ---------- 오디오(부저) ----------
 const Sound = {
   ctx: null, osc: new Map(), muted: false,
+  // 브라우저 자동재생 정책: 사용자 조작이 있을 때 오디오 컨텍스트를 깨운다
+  resume() {
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => { });
+  },
   set(id, freq, on) {
     if (this.muted) on = false;
     let o = this.osc.get(id);
     if (!on) { if (o) { o.g.gain.value = 0; } return; }
     try {
       if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.resume();
       if (!o) {
         const osc = this.ctx.createOscillator(), g = this.ctx.createGain();
         osc.type = 'square'; g.gain.value = 0; osc.connect(g); g.connect(this.ctx.destination); osc.start();
@@ -314,12 +319,19 @@ DEVICES.buzzer = {
   label: '패시브 부저', cat: 'io', icon: '🔊', prefix: 'buzzer', desc: 'PWM 주파수로 소리를 내는 패시브 부저',
   pins: [{ n: '+', role: 'io' }, { n: '-', role: 'gnd' }],
   view: () => `<div class="v-buzz"><div class="disc"></div><span class="f"></span></div>`,
-  render(n, ctx, el) {
+  // 소리는 화면 갱신과 무관하게 시뮬레이션 틱에서 처리
+  audio(n, ctx) {
     const pwm = ctx.pwm('+');
     const on = !!(pwm && pwm.duty > 0 && pwm.freq >= 20 && ctx.v('-') === 0 && ctx.sim.running);
+    n.rt.sound = on ? Math.round(pwm.freq) : 0;
     Sound.set(n.id, pwm ? pwm.freq : 0, on);
+  },
+  render(n, ctx, el) {
+    const on = !!n.rt.sound;
     el.querySelector('.disc').classList.toggle('on', on);
-    el.querySelector('.f').textContent = on ? `${Math.round(pwm.freq)} Hz` : '';
+    const f = el.querySelector('.f');
+    const t = on ? `${n.rt.sound} Hz` : '';
+    if (f.textContent !== t) f.textContent = t;
   },
   stop: n => Sound.set(n.id, 0, false),
   setup(n, C) {
@@ -555,10 +567,17 @@ function shieldHTML(n, big) {
 function shieldRender(n, ctx, el) {
   const vio = ctx.sim.vio();
   const gnd = ctx.v('GND');
+  const rail = ctx.v('3V3');
   const lit = p => { const v = ctx.v(p); return v == null || gnd == null ? 0 : clamp((v - gnd) / vio, 0, 1); };
+  // 양극 공통(COM → 3V3): 세그먼트 핀이 LOW일 때 켜짐
+  const litSeg = p => {
+    if (n.st.segCom === 'cathode') return lit(p);
+    const v = ctx.v(p);
+    return v == null || rail == null ? 0 : clamp((rail - v) / vio, 0, 1);
+  };
   if (!el._segs) { el._segs = [...el.querySelectorAll('[data-sseg]')]; el._leds = [...el.querySelectorAll('[data-sled]')]; }
   el._segs.forEach((s, i) => {
-    const b = lit(SHIELD.seg[i]);
+    const b = litSeg(SHIELD.seg[i]);
     const k = Math.round(b * 8);
     if (s._k !== k) { s._k = k; s.style.opacity = 0.1 + b * 0.9; s.classList.toggle('on', b > 0.15); }
   });
@@ -570,21 +589,29 @@ function shieldRender(n, ctx, el) {
   const knob = el.querySelector('.pot line');
   if (knob) knob.setAttribute('transform', `rotate(${-135 + (n.st.pos / 100) * 270} 26 150)`);
   el.querySelectorAll('[data-hold]').forEach(b => b.classList.toggle('on', !!n.st[b.dataset.hold]));
-  // 부저: PNP 구동이라 LOW(또는 PWM)일 때 울림
+  el.querySelector('.buzz').classList.toggle('on', !!n.rt.sound);
+}
+
+// 부저: PNP 구동이라 LOW(또는 PWM)일 때 울림 — 시뮬레이션 틱에서 소리 처리
+function shieldAudio(n, ctx) {
   const pwm = ctx.pwm(SHIELD.buzzer), v = ctx.v(SHIELD.buzzer);
-  const on = ctx.sim.running && gnd === 0 && (pwm ? pwm.duty > 0 && pwm.duty < 65535 : v === 0);
+  const on = !!(ctx.sim.running && ctx.v('GND') === 0 && (pwm ? pwm.duty > 0 && pwm.duty < 65535 && pwm.freq >= 20 : v === 0));
+  n.rt.sound = on ? Math.round(pwm ? pwm.freq : 2000) : 0;
   Sound.set(n.id, pwm && pwm.freq ? pwm.freq : 2000, on);
-  el.querySelector('.buzz').classList.toggle('on', on);
 }
 
 DEVICES.zeroshield = {
   label: 'RP2040-Zero 미니 실습보드', cat: 'io', icon: '🧩', prefix: 'board',
-  desc: 'RP2040-Zero에 끼워 쓰는 올인원 실습보드: 7세그먼트(캐소드 공통, A~G=GP0~GP6), LED 4개(GP7~GP10), 버튼 4개(SW1~SW4=GP15~GP12, 누르면 GND), 가변저항(GP29), 부저(GP11, PNP라 LOW에서 울림). 노드를 추가하면 RP2040-Zero 핀에 자동으로 연결됩니다.',
+  desc: 'RP2040-Zero에 끼워 쓰는 올인원 실습보드: 7세그먼트(양극 공통, A~G=GP0~GP6 → LOW에서 켜짐), LED 4개(GP7~GP10), 버튼 4개(SW1~SW4=GP15~GP12, 누르면 GND), 가변저항(GP29), 부저(GP11, PNP라 LOW에서 울림). 노드를 추가하면 RP2040-Zero 핀에 자동으로 연결됩니다.',
   pins: SHIELD_PINS.map(p => ({ n: p, role: p === 'GND' ? 'gnd' : p === '3V3' || p === '5V' ? 'vcc5' : 'io' })),
-  controls: [{ k: 'pos', type: 'range', label: '가변저항', min: 0, max: 100, unit: '%' }],
-  init: () => ({ pos: 50, sw1: false, sw2: false, sw3: false, sw4: false }),
+  controls: [
+    { k: 'pos', type: 'range', label: '가변저항', min: 0, max: 100, unit: '%' },
+    { k: 'segCom', type: 'select', label: '7세그', opts: [['anode', '양극 공통(LOW=켜짐)'], ['cathode', '음극 공통(HIGH=켜짐)']] },
+  ],
+  init: () => ({ pos: 50, segCom: 'anode', sw1: false, sw2: false, sw3: false, sw4: false }),
   view: n => shieldHTML(n, false),
   render: (n, ctx, el) => shieldRender(n, ctx, el),
+  audio: (n, ctx) => shieldAudio(n, ctx),
   closed: n => SHIELD.sw.map((p, i) => n.st['sw' + (i + 1)] ? [p, 'GND'] : null).filter(Boolean),
   outputs(n, ctx) {
     const v3 = ctx.v('3V3'), g = ctx.v('GND');
@@ -610,6 +637,7 @@ DEVICES.zeroshield = {
   },
   setup(n, C) {
     if (C.board !== 'rp2040zero') C.warn('이 실습보드는 RP2040-Zero 전용입니다');
+    C.meta.segAnode = n.st.segCom !== 'cathode';
     const g = p => C.gpio(p);
     const miss = [];
     const pins = k => SHIELD[k].map(p => { const x = g(p); if (x == null) miss.push(p); return x; });
@@ -620,7 +648,7 @@ DEVICES.zeroshield = {
     if (miss.length) return C.warn(`보드 핀이 연결되지 않았습니다: ${miss.join(', ')} (노드를 지우고 다시 추가하면 자동 연결됩니다)`);
     const O = x => C.B.out(x);
     return [
-      `${n.name}_seg = [${seg.map(O).join(', ')}]  # A~G (캐소드 공통)`,
+      `${n.name}_seg = [${seg.map(O).join(', ')}]  # A~G (${n.st.segCom === 'cathode' ? '음극 공통: 1=켜짐' : '양극 공통: 0=켜짐'})`,
       `${n.name}_led = [${led.map(O).join(', ')}]  # D1~D4`,
       `${n.name}_sw = [${sw.map(x => `Pin(${x}, Pin.IN, Pin.PULL_UP)`).join(', ')}]  # SW1~SW4 (누르면 0)`,
       `${n.name}_pot = ADC(Pin(${pot}))`,

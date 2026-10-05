@@ -135,10 +135,10 @@ const BOARDS = {
       }
       el.querySelectorAll('.mb-btn').forEach(b => b.classList.toggle('on', !!n.st[b.dataset.hold]));
       el.querySelector('.mb-logo').classList.toggle('on', !!n.st.logo);
-      const tone = sim.running && n.rt.tone > 0;
-      Sound.set('mb-speaker', n.rt.tone || 0, tone);
-      el.querySelector('.mb-spk').classList.toggle('on', tone);
+      el.querySelector('.mb-spk').classList.toggle('on', !!(sim.running && n.rt.tone > 0));
     },
+    // 소리는 화면 갱신과 무관하게 시뮬레이션 틱에서 처리
+    audio(n, sim) { Sound.set('mb-speaker', n.rt.tone || 0, !!(sim.running && n.rt.tone > 0)); },
     stop(n) { Sound.set('mb-speaker', 0, false); n.rt.display = ''; n.rt.tone = 0; },
   },
 };

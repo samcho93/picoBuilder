@@ -332,7 +332,7 @@ const SHIELD_DEV = DEV(['zeroshield'], '실습보드');
 const SH = ['rp2040zero'];
 function shieldSeg(G) {
   G.helper('seg_show', `SEG_DIGITS = (${FND_DIGITS.slice(0, 10).map(v => '0x' + v.toString(16).toUpperCase().padStart(2, '0')).join(', ')})\n\n`
-    + 'def seg_show(pins, value):\n'
+    + 'def seg_show(pins, value, anode=True):\n'
     + '    bits = 0\n'
     + '    try:\n'
     + '        v = int(value)\n'
@@ -341,16 +341,18 @@ function shieldSeg(G) {
     + '    except Exception:\n'
     + '        bits = 0\n'
     + '    for i in range(7):\n'
-    + `        ${G.B.write(G, 'pins[i]', '(bits >> i) & 1')}\n`);
+    + '        on = (bits >> i) & 1\n'
+    + `        ${G.B.write(G, 'pins[i]', '(not on) if anode else on')}\n`);
 }
+const segAnode = (G, d) => G.meta(d).segAnode === false ? 'False' : 'True';
 def('sh_seg', {
   label: '[실습보드] 7세그 숫자', cat: 'm_io', boards: SH, desc: '미니보드 7세그먼트에 0~9를 표시합니다 (범위를 벗어나면 끔).',
   ins: [X(), SHIELD_DEV, D('value', 'number', 0, '숫자')], outs: [X('out')],
-  stmt(n, G) { const d = G.dev(n); if (!d) return []; shieldSeg(G); return [`seg_show(${d.name}_seg, ${G.expr(n, 'value')})`]; },
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; shieldSeg(G); return [`seg_show(${d.name}_seg, ${G.expr(n, 'value')}, ${segAnode(G, d)})`]; },
 });
 def('sh_seg_off', {
   label: '[실습보드] 7세그 끄기', cat: 'm_io', boards: SH, desc: '모든 세그먼트를 끕니다.', ins: [X(), SHIELD_DEV], outs: [X('out')],
-  stmt(n, G) { const d = G.dev(n); if (!d) return []; shieldSeg(G); return [`seg_show(${d.name}_seg, -1)`]; },
+  stmt(n, G) { const d = G.dev(n); if (!d) return []; shieldSeg(G); return [`seg_show(${d.name}_seg, -1, ${segAnode(G, d)})`]; },
 });
 def('sh_led', {
   label: '[실습보드] LED 켜기', cat: 'm_io', boards: SH, desc: 'LED 번호(0=D1 ~ 3=D4)를 켜거나 끕니다. 번호를 값 포트로 연결하면 반복문 안에서 순차 제어할 수 있습니다.',

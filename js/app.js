@@ -614,7 +614,8 @@ class App {
       if (this.codeMode === 'manual' && !confirm('직접 수정한 코드를 버리고 노드에서 다시 생성할까요?')) return;
       this.setCodeMode('auto'); this.regen(true); this.autosave();
     };
-    $('btnRun').onclick = () => this.runSim();
+    $('btnRun').onclick = () => { Sound.resume(); this.runSim(); };
+    document.addEventListener('pointerdown', () => Sound.resume(), { capture: true });
     $('btnStop').onclick = () => this.runtime.stop();
     $('btnMute').onclick = () => { Sound.muted = !Sound.muted; if (Sound.muted) Sound.allOff(); $('btnMute').textContent = Sound.muted ? '🔇' : '🔊'; };
     $('btnConnect').onclick = async () => {
@@ -728,8 +729,13 @@ class App {
       const now = performance.now();
       for (const n of this.circuit.nodes) {
         const d = DEVICES[n.type];
-        if (d && d.tick) d.tick(n, sim.ctx(n), now);
+        if (!d) continue;
+        const ctx = d.tick || d.audio ? sim.ctx(n) : null;
+        if (d.tick) d.tick(n, ctx, now);
+        if (d.audio) d.audio(n, ctx);   // 소리는 화면이 가려져도 계속 동작
       }
+      const bn = this.boardNode();
+      if (bn && BOARDS[bn.type].audio) BOARDS[bn.type].audio(bn, sim);
     }, 20);
   }
 
