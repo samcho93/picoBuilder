@@ -587,7 +587,8 @@ function shieldRender(n, ctx, el) {
   el._leds.forEach((d, i) => {
     const b = lit(SHIELD.led[i]);
     const k = Math.round(b * 8);
-    if (d._k !== k) { d._k = k; d.style.opacity = 0.25 + b * 0.75; d.classList.toggle('on', b > 0.15); }
+    // 꺼져 있어도 어두운 파란색으로 보이도록 최소 밝기 유지
+    if (d._k !== k) { d._k = k; d.style.opacity = 0.55 + b * 0.45; d.classList.toggle('on', b > 0.15); }
   });
   const knob = el.querySelector('.pot line');
   if (knob) knob.setAttribute('transform', `rotate(${-135 + (n.st.pos / 100) * 270} 26 150)`);
