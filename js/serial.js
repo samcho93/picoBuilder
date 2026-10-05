@@ -34,7 +34,7 @@ class PicoSerial {
     }
     this.port = port;
     this.writer = port.writable.getWriter();
-    this.readLoop();
+    this.readLoop(port);
     navigator.serial.addEventListener('disconnect', this._onDisc = e => { if (e.target === this.port) this.cleanup('보드 연결이 끊어졌습니다'); });
     const info = port.getInfo ? port.getInfo() : {};
     this.boardHint = info.usbVendorId === 0x0D28 ? 'microbit' : info.usbVendorId === 0x2E8A ? 'pico' : ESP_VIDS.includes(info.usbVendorId) ? 'esp32' : null;
@@ -42,35 +42,49 @@ class PicoSerial {
     this.app.onSerialState(true);
   }
 
-  async readLoop() {
-    while (this.port && this.port.readable) {
-      this.reader = this.port.readable.getReader();
+  async readLoop(port) {
+    let retry = 0;
+    while (this.port === port && port.readable) {
+      let reader;
+      try { reader = port.readable.getReader(); } catch (e) { return; }  // 이미 잠겨 있으면 종료
+      this.reader = reader;
       try {
         for (;;) {
-          const { value, done } = await this.reader.read();
-          if (done) break;
+          const { value, done } = await reader.read();
+          // 스트림이 닫힘(연결 해제 등) → 여기서 끝내야 한다.
+          // 닫힌 스트림에 reader를 다시 붙이면 read()가 즉시 done으로 돌아와 무한 루프가 된다.
+          if (done) return;
           const s = this.dec.decode(value, { stream: true });
           this.buf += s;
           if (this.buf.length > 200000) this.buf = this.buf.slice(-100000);
           if (!this.quiet) this.app.serialLog(s.replace(/\x04/g, ''));
         }
       } catch (e) {
-        break;
+        if (++retry > 3) return;          // 프레이밍 오류 등은 새 reader로 몇 번만 재시도
+        await this.sleep(50);
       } finally {
-        try { this.reader.releaseLock(); } catch (e) { }
+        try { reader.releaseLock(); } catch (e) { }
+        if (this.reader === reader) this.reader = null;
       }
     }
   }
 
   async disconnect() {
+    const port = this.port;
+    if (!port) return;
+    this.port = null;                       // readLoop가 새 reader를 잡지 못하게 먼저 끊는다
     try { if (this.reader) await this.reader.cancel(); } catch (e) { }
-    try { this.writer.releaseLock(); } catch (e) { }
-    try { await this.port.close(); } catch (e) { }
+    try { if (this.writer) this.writer.releaseLock(); } catch (e) { }
+    this.reader = null; this.writer = null;
+    // 스트림 잠금이 풀린 뒤에 닫아야 close()가 InvalidStateError로 실패하지 않는다
+    for (let i = 0; i < 40 && ((port.readable && port.readable.locked) || (port.writable && port.writable.locked)); i++) await this.sleep(25);
+    try { await port.close(); } catch (e) { }
     this.cleanup('보드 연결 해제');
   }
 
   cleanup(msg) {
-    this.port = null; this.reader = null; this.writer = null;
+    if (this._onDisc) { navigator.serial.removeEventListener('disconnect', this._onDisc); this._onDisc = null; }
+    this.port = null; this.reader = null; this.writer = null; this.busy = false; this.quiet = false;
     this.app.serialLog(`\n[${msg}]\n`, 'info');
     this.app.onSerialState(false);
   }

@@ -620,10 +620,13 @@ class App {
     $('btnStop').onclick = () => this.runtime.stop();
     $('btnMute').onclick = () => { Sound.muted = !Sound.muted; if (Sound.muted) Sound.allOff(); $('btnMute').textContent = Sound.muted ? '🔇' : '🔊'; };
     $('btnConnect').onclick = async () => {
+      const b = $('btnConnect');
+      if (b.disabled) return;
+      b.disabled = true;                     // 연결/해제가 끝나기 전 재진입 방지
       try {
         if (this.serial.connected) await this.serial.disconnect();
         else await this.serial.connect();
-      } catch (e) { this.toast(e.message, 'err'); }
+      } catch (e) { this.toast(e.message, 'err'); } finally { b.disabled = false; }
     };
     $('btnUpload').onclick = () => this.picoAction('upload');
     $('btnRunPico').onclick = () => this.picoAction('run');
