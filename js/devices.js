@@ -507,7 +507,7 @@ function fndDevice(anode) {
         let b = 0;
         if (v != null && com != null) b = clamp((anode ? com - v : v - com) / vio, 0, 1);
         const key = Math.round(b * 10);
-        if (s._b !== key) { s._b = key; s.style.opacity = 0.08 + b * 0.92; s.classList.toggle('on', b > 0.15); }
+        if (s._b !== key) { s._b = key; s.style.opacity = 0.42 + b * 0.58; s.classList.toggle('on', b > 0.15); }
       }
     },
     setup(n, C) {
@@ -542,8 +542,9 @@ const SHIELD_PINS = ['5V', 'GND', '3V3', 'GP29', 'GP28', 'GP27', 'GP26', 'GP15',
 // SW1~SW4는 하단 2x2, BZ1(부저)은 보드 뒷면
 function shieldHTML(n, big) {
   const seg = Object.entries(FND_SHAPE).map(([k, d]) => `<path class="sseg" data-sseg="${k}" d="${d}" transform="translate(83.4,32.5) scale(0.52)"/>`).join('');
-  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="150" cy="${100 + i * 18}" r="5"/>
-    <text class="slbl start" x="160" y="${103 + i * 18}">D${i + 1}</text>`).join('');
+  // LED는 7세그와 버튼 사이에 겹치지 않도록 간격 16으로 배치 (D4 아래 여백 확보)
+  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="150" cy="${98 + i * 16}" r="5"/>
+    <text class="slbl start" x="159" y="${101 + i * 16}">D${i + 1}</text>`).join('');
   const btns = [0, 1, 2, 3].map(i => {
     const x = 60 + (i % 2) * 56, y = 158 + ((i / 2) | 0) * 40;
     return `<g class="sbtn" data-hold="sw${i + 1}"><rect x="${x}" y="${y}" width="38" height="30" rx="4"/>
@@ -582,7 +583,8 @@ function shieldRender(n, ctx, el) {
   el._segs.forEach((s, i) => {
     const b = litSeg(SHIELD.seg[i]);
     const k = Math.round(b * 8);
-    if (s._k !== k) { s._k = k; s.style.opacity = 0.1 + b * 0.9; s.classList.toggle('on', b > 0.15); }
+    // 꺼진 세그먼트도 어두운 빨강으로 보이게 (8자 모양 확인용)
+    if (s._k !== k) { s._k = k; s.style.opacity = 0.42 + b * 0.58; s.classList.toggle('on', b > 0.15); }
   });
   el._leds.forEach((d, i) => {
     const b = lit(SHIELD.led[i]);

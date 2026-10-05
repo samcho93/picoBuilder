@@ -441,7 +441,7 @@ body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 /* ---------- FND (7세그먼트) ---------- */
 .v-fnd { width: 54px; height: 86px; background: #14110f; border-radius: 4px; padding: 3px; }
-.v-fnd path, .v-fnd circle { fill: #3a1412; transition: opacity .05s; }
+.v-fnd path, .v-fnd circle { fill: #55201b; transition: opacity .05s; }
 .v-fnd path.on, .v-fnd circle.on { fill: #ff2d20; filter: drop-shadow(0 0 3px #ff2d20); }
 /* ---------- RP2040-Zero 미니 실습보드 ---------- */
 .v-shield { width: 200px; height: 252px; }
@@ -451,7 +451,7 @@ body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 .v-shield .zlbl { fill: #9ccc9f; font-size: 7px; text-anchor: middle; font-family: Consolas, monospace; }
 .v-shield .hdr circle { fill: #c9a33a; }
 .v-shield .fndbg { fill: #0b0c0e; stroke: #333; }
-.v-shield .sseg { fill: #3a1412; }
+.v-shield .sseg { fill: #55201b; }
 .v-shield .sseg.on { fill: #ff2d20; filter: drop-shadow(0 0 2px #ff2d20); }
 .v-shield .sled { fill: #1f5f96; stroke: #2f7fc4; stroke-width: 0.8; }
 .v-shield .sled.on { fill: #5ab6ff; stroke: #9fd6ff; filter: drop-shadow(0 0 7px #3da5ff); }
