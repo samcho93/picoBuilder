@@ -615,7 +615,8 @@ class App {
       this.setCodeMode('auto'); this.regen(true); this.autosave();
     };
     $('btnRun').onclick = () => { Sound.resume(); this.runSim(); };
-    document.addEventListener('pointerdown', () => Sound.resume(), { capture: true });
+    // 첫 사용자 조작에서 오디오 컨텍스트를 미리 깨워 둔다(부저가 처음부터 울리도록)
+    for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () => Sound.resume(), { capture: true });
     $('btnStop').onclick = () => this.runtime.stop();
     $('btnMute').onclick = () => { Sound.muted = !Sound.muted; if (Sound.muted) Sound.allOff(); $('btnMute').textContent = Sound.muted ? '🔇' : '🔊'; };
     $('btnConnect').onclick = async () => {

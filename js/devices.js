@@ -71,17 +71,22 @@ function digitalSetup(node, C, pin, mode, suffix = '', pull = 'NONE') {
 // ---------- 오디오(부저) ----------
 const Sound = {
   ctx: null, osc: new Map(), muted: false,
-  // 브라우저 자동재생 정책: 사용자 조작이 있을 때 오디오 컨텍스트를 깨운다
+  // 브라우저 자동재생 정책: 사용자 조작이 있을 때 오디오 컨텍스트를 만들고 깨운다.
+  // 시뮬레이션 도중(사용자 조작이 아닌 타이머 안)에 처음 만들면 suspended 상태로
+  // 생성되어 소리가 나지 않으므로, 조작 시점에 미리 만들어 둔다.
   resume() {
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => { });
+    try {
+      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state !== 'running') this.ctx.resume().catch(() => { });
+    } catch (e) { return null; }
+    return this.ctx;
   },
   set(id, freq, on) {
     if (this.muted) on = false;
     let o = this.osc.get(id);
     if (!on) { if (o) { o.g.gain.value = 0; } return; }
     try {
-      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      this.resume();
+      if (!this.resume()) return;
       if (!o) {
         const osc = this.ctx.createOscillator(), g = this.ctx.createGain();
         osc.type = 'square'; g.gain.value = 0; osc.connect(g); g.connect(this.ctx.destination); osc.start();
@@ -526,7 +531,7 @@ DEVICES.fnd_cc = fndDevice(false);
 DEVICES.fnd_ca = fndDevice(true);
 
 // ---- RP2040-Zero 미니 실습보드 (7세그 + LED4 + 버튼4 + 가변저항 + 부저) ----
-// 회로: A~G = GP0~GP6(캐소드 공통, DP 미연결) / D1~D4 = GP7~GP10 / 부저 = GP11(PNP, LOW일 때 울림)
+// 회로: A~G = GP0~GP6(애노드 공통, LOW에서 켜짐, DP 미연결) / D1~D4 = GP7,GP8,GP13,GP12 / 부저 = GP11(PNP, LOW일 때 울림)
 //       SW4~SW1 = GP12~GP15(누르면 GND) / 가변저항 = GP29(ADC3)
 const SHIELD = {
   seg: ['GP0', 'GP1', 'GP2', 'GP3', 'GP4', 'GP5', 'GP6'],
@@ -608,7 +613,7 @@ function shieldAudio(n, ctx) {
 
 DEVICES.zeroshield = {
   label: 'RP2040-Zero 미니 실습보드', cat: 'io', icon: '🧩', prefix: 'board',
-  desc: 'RP2040-Zero에 끼워 쓰는 올인원 실습보드: 7세그먼트(양극 공통, A~G=GP0~GP6 → LOW에서 켜짐), LED 4개(GP7~GP10), 버튼 4개(SW1~SW4=GP15~GP12, 누르면 GND), 가변저항(GP29), 부저(GP11, PNP라 LOW에서 울림). 노드를 추가하면 RP2040-Zero 핀에 자동으로 연결됩니다.',
+  desc: 'RP2040-Zero에 끼워 쓰는 올인원 실습보드: 7세그먼트(양극 공통, A~G=GP0~GP6 → LOW에서 켜짐), LED 4개(D1~D4=GP7,GP8,GP13,GP12), 버튼 4개(SW1~SW4=GP15,GP14,GP9,GP10, 누르면 GND), 가변저항(GP29), 부저(GP11, PNP라 LOW에서 울림). 노드를 추가하면 RP2040-Zero 핀에 자동으로 연결됩니다.',
   pins: SHIELD_PINS.map(p => ({ n: p, role: p === 'GND' ? 'gnd' : p === '3V3' || p === '5V' ? 'vcc5' : 'io' })),
   controls: [
     { k: 'pos', type: 'range', label: '가변저항', min: 0, max: 100, unit: '%' },

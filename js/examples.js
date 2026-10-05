@@ -469,9 +469,9 @@ EXAMPLES.push(
 import time, random
 
 # RP2040-Zero 미니 실습보드
-seg = [Pin(i, Pin.OUT) for i in range(0, 7)]      # A~G (캐소드 공통)
-led = [Pin(i, Pin.OUT) for i in range(7, 11)]     # D1~D4
-sw = [Pin(i, Pin.IN, Pin.PULL_UP) for i in (15, 14, 13, 12)]  # SW1~SW4
+seg = [Pin(i, Pin.OUT) for i in range(0, 7)]      # A~G (애노드 공통: 0에서 켜짐)
+led = [Pin(i, Pin.OUT) for i in (7, 8, 13, 12)]   # D1~D4
+sw = [Pin(i, Pin.IN, Pin.PULL_UP) for i in (15, 14, 9, 10)]  # SW1~SW4
 pot = ADC(Pin(29))
 buzzer = PWM(Pin(11))
 buzzer.duty_u16(65535)                            # PNP 구동: 65535 = 무음
@@ -482,7 +482,7 @@ DIGITS = (0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F)
 def show(value):
     bits = DIGITS[value] if 0 <= value <= 9 else 0
     for i in range(7):
-        seg[i].value((bits >> i) & 1)
+        seg[i].value(0 if (bits >> i) & 1 else 1)  # 애노드 공통이라 반전
 
 
 def tone(freq, ms):
