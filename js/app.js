@@ -647,6 +647,12 @@ class App {
     $('help').onclick = e => { if (e.target.id === 'help') $('help').hidden = true; };
     $('projName').addEventListener('change', () => this.autosave());
     $('projName').addEventListener('keydown', e => e.stopPropagation());
+    $('edCopy').onclick = () => this.editor.copy(false);
+    $('edCut').onclick = () => this.editor.copy(true);
+    $('edPaste').onclick = () => this.editor.paste(null);
+    $('edDup').onclick = () => this.editor.duplicate();
+    $('edDel').onclick = () => this.editor.deleteSelection();
+    $('edAll').onclick = () => this.editor.selectAll();
     $('zIn').onclick = () => this.editor.zoomBy(1.2);
     $('zOut').onclick = () => this.editor.zoomBy(1 / 1.2);
     $('zFit').onclick = () => this.editor.fit();
@@ -695,8 +701,12 @@ class App {
       if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); this.undoRedo(e.shiftKey ? 1 : -1); return; }
       if (e.ctrlKey && e.key.toLowerCase() === 'y') { e.preventDefault(); this.undoRedo(1); return; }
       if (e.ctrlKey && e.key.toLowerCase() === 'd') { e.preventDefault(); this.editor.duplicate(); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === 'c') { e.preventDefault(); this.editor.copy(false); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === 'x') { e.preventDefault(); this.editor.copy(true); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === 'v') { e.preventDefault(); this.editor.paste(null); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); this.editor.selectAll(); return; }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.editor.deleteSelection(); }
-      if (e.key === 'Escape') this.editor.select(null);
+      if (e.key === 'Escape') { this.editor.hideMenu(); this.editor.select(null); }
     });
     window.addEventListener('resize', () => { this.editor.drawWires(); this.cm.refresh(); });
     window.addEventListener('beforeunload', () => this.autosave());

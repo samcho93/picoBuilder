@@ -13,6 +13,7 @@ class Editor {
     this.svg = el.querySelector('svg.wires');
     this.view = { x: 30, y: 20, k: 0.85 };
     this.sel = null;
+    this.selNodes = new Set();
     this.ports = new Map();
     this.wireEls = [];
     this.bind();
@@ -75,7 +76,7 @@ class Editor {
     else { el.innerHTML = `<div class="nhead"><span class="ttl">알 수 없는 노드: ${esc(n.type)}</span><span class="hbtn del">×</span></div>`; }
     el.style.left = n.x + 'px';
     el.style.top = n.y + 'px';
-    if (this.sel && this.sel.kind === 'node' && this.sel.id === n.id) el.classList.add('selected');
+    if (this.selNodes.has(n.id)) el.classList.add('selected');
     this.world.appendChild(el);
     n.el = el;
     el.querySelectorAll('.port').forEach(p => this.ports.set(p.dataset.t, p));
@@ -156,15 +157,23 @@ class Editor {
     head.addEventListener('pointerdown', e => {
       if (e.button !== 0 || e.target.closest('.hbtn,.port')) return;
       e.stopPropagation();
-      this.select({ kind: 'node', id: n.id });
-      const sx = e.clientX, sy = e.clientY, ox = n.x, oy = n.y;
+      // 선택되지 않은 블록을 잡으면 그 블록만 선택, Shift면 선택에 추가
+      if (e.shiftKey) this.select({ kind: 'node', id: n.id }, true);
+      else if (!this.selNodes.has(n.id)) this.select({ kind: 'node', id: n.id });
+      else { this.sel = { kind: 'node', id: n.id }; this.app.showProps(); }
+      // 선택된 블록 전체를 함께 이동
+      const moving = [...this.selNodes].map(id => this.node(id)).filter(m => m && m.el);
+      const start = moving.map(m => ({ n: m, x: m.x, y: m.y }));
+      const sx = e.clientX, sy = e.clientY;
       let moved = false;
-      head.setPointerCapture(e.pointerId);
+      try { head.setPointerCapture(e.pointerId); } catch (err) { }
       const mv = ev => {
         const dx = (ev.clientX - sx) / this.view.k, dy = (ev.clientY - sy) / this.view.k;
         if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
-        n.x = Math.round((ox + dx) / 5) * 5; n.y = Math.round((oy + dy) / 5) * 5;
-        el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+        for (const s of start) {
+          s.n.x = Math.round((s.x + dx) / 5) * 5; s.n.y = Math.round((s.y + dy) / 5) * 5;
+          s.n.el.style.left = s.n.x + 'px'; s.n.el.style.top = s.n.y + 'px';
+        }
         this.drawWires();
       };
       const up = () => { head.removeEventListener('pointermove', mv); head.removeEventListener('pointerup', up); if (moved) this.app.changed({ code: false }); };
@@ -174,8 +183,10 @@ class Editor {
     el.addEventListener('pointerdown', e => {
       if (e.target.closest('.port')) return;
       if (e.target.closest('input,select,button,textarea,.pad,.v-toggle')) { e.stopPropagation(); return; }
+      if (e.button === 2) return;   // 오른쪽 버튼은 화면 이동 / 메뉴
       e.stopPropagation();
-      this.select({ kind: 'node', id: n.id });
+      if (e.shiftKey) this.select({ kind: 'node', id: n.id }, true);
+      else if (!this.selNodes.has(n.id)) this.select({ kind: 'node', id: n.id });
     });
     const del = el.querySelector('.hbtn.del');
     if (del) del.addEventListener('click', e => { e.stopPropagation(); this.removeNode(n.id); });
@@ -228,14 +239,39 @@ class Editor {
   }
 
   // ---------- 선택 / 삭제 ----------
-  select(s) {
-    this.sel = s;
-    this.world.querySelectorAll('.node.selected').forEach(e => e.classList.remove('selected'));
-    if (s && s.kind === 'node') { const n = this.node(s.id); if (n && n.el) n.el.classList.add('selected'); }
+  // s: null | {kind:'node', id} | {kind:'wire', i} / add: Shift 선택(토글)
+  select(s, add = false) {
+    if (!s) { this.selNodes.clear(); this.sel = null; }
+    else if (s.kind === 'node') {
+      if (add) { if (this.selNodes.has(s.id)) this.selNodes.delete(s.id); else this.selNodes.add(s.id); }
+      else this.selNodes = new Set([s.id]);
+      this.sel = this.selNodes.has(s.id) ? s : (this.selNodes.size ? { kind: 'node', id: [...this.selNodes][0] } : null);
+    } else { this.selNodes.clear(); this.sel = s; }
+    this.refreshSelection();
+  }
+  selectAll() {
+    this.selNodes = new Set(this.g.nodes.filter(n => !BOARDS[n.type]).map(n => n.id));
+    this.sel = this.selNodes.size ? { kind: 'node', id: [...this.selNodes][0] } : null;
+    this.refreshSelection();
+  }
+  markSelected() {
+    for (const n of this.g.nodes) if (n.el) n.el.classList.toggle('selected', this.selNodes.has(n.id));
+  }
+  refreshSelection() {
+    this.markSelected();
     this.drawWires();
     this.app.showProps();
+    this.updateEditBar();
   }
-  removeNode(id) {
+  updateEditBar() {
+    const bar = document.getElementById('editBar');
+    if (!bar) return;
+    const n = this.selNodes.size;
+    bar.hidden = !n && !(this.sel && this.sel.kind === 'wire');
+    const lbl = document.getElementById('editCount');
+    if (lbl) lbl.textContent = n ? `블록 ${n}개 선택` : '와이어 1개 선택';
+  }
+  removeNode(id, batch) {
     const n = this.node(id);
     if (!n || BOARDS[n.type]) return;
     this.g.wires = this.g.wires.filter(w => splitTerm(w.a)[0] !== id && splitTerm(w.b)[0] !== id);
@@ -243,12 +279,15 @@ class Editor {
     if (n.el) { n.el.querySelectorAll('.port').forEach(p => this.ports.delete(p.dataset.t)); n.el.remove(); }
     this.g.nodes = this.g.nodes.filter(x => x !== n);
     Sound.set(id, 0, false);
+    this.selNodes.delete(id);
     if (this.sel && this.sel.id === id) this.sel = null;
+    if (batch) return;
     this.fillDevSelects();
     this.app.sim.invalidate();
     this.refreshConn();
     this.drawWires();
     this.app.showProps();
+    this.updateEditBar();
     this.app.changed({});
   }
   removeWire(i) {
@@ -265,9 +304,77 @@ class Editor {
     this.app.changed({});
   }
   deleteSelection() {
-    if (!this.sel) return;
-    if (this.sel.kind === 'node') this.removeNode(this.sel.id);
-    else if (this.sel.kind === 'wire') this.removeWire(this.sel.i);
+    if (this.selNodes.size) {
+      const ids = [...this.selNodes];
+      const kept = ids.filter(id => { const n = this.node(id); return n && BOARDS[n.type]; }).length;
+      for (const id of ids) this.removeNode(id, true);
+      this.selNodes.clear();
+      this.sel = null;
+      this.fillDevSelects();
+      this.app.sim.invalidate();
+      this.refreshConn();
+      this.drawWires();
+      this.app.showProps();
+      this.updateEditBar();
+      this.app.changed({});
+      this.app.toast(`${ids.length - kept}개 블록을 삭제했습니다${kept ? ' (보드는 삭제할 수 없습니다)' : ''}`, kept ? 'warn' : 'ok');
+      return;
+    }
+    if (this.sel && this.sel.kind === 'wire') this.removeWire(this.sel.i);
+  }
+
+  // ---------- 복사 / 잘라내기 / 붙여넣기 ----------
+  copy(cut) {
+    const ids = [...this.selNodes].filter(id => { const n = this.node(id); return n && !BOARDS[n.type]; });
+    if (!ids.length) { this.app.toast('복사할 블록을 먼저 선택하세요', 'warn'); return; }
+    const set = new Set(ids);
+    const nodes = ids.map(id => {
+      const n = this.node(id);
+      return { id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, flip: n.flip || undefined, st: JSON.parse(JSON.stringify(n.st || {})) };
+    });
+    const wires = this.g.wires.filter(w => set.has(splitTerm(w.a)[0]) && set.has(splitTerm(w.b)[0])).map(w => ({ ...w }));
+    this.app.clip = { nodes, wires };
+    try { navigator.clipboard && navigator.clipboard.writeText(JSON.stringify({ picoBuilder: 'blocks', nodes, wires })); } catch (e) { }
+    if (cut) { for (const id of ids) this.removeNode(id, true); this.afterBatch(); }
+    this.app.toast(`블록 ${nodes.length}개를 ${cut ? '잘라냈습니다' : '복사했습니다'}`, 'ok');
+  }
+  afterBatch() {
+    this.selNodes.clear();
+    this.sel = null;
+    this.fillDevSelects();
+    this.app.sim.invalidate();
+    this.refreshConn();
+    this.drawWires();
+    this.app.showProps();
+    this.updateEditBar();
+    this.app.changed({});
+  }
+  paste(at) {
+    const clip = this.app.clip;
+    if (!clip || !clip.nodes.length) { this.app.toast('붙여넣을 블록이 없습니다 (먼저 복사하세요)', 'warn'); return; }
+    const minX = Math.min(...clip.nodes.map(n => n.x)), minY = Math.min(...clip.nodes.map(n => n.y));
+    const dx = at ? at.x - minX : 28, dy = at ? at.y - minY : 28;
+    const map = new Map(), made = [];
+    for (const n of clip.nodes) {
+      const nn = this.addNode(n.type, n.x + dx, n.y + dy, { st: JSON.parse(JSON.stringify(n.st)), flip: n.flip });
+      map.set(n.id, nn.id);
+      made.push(nn.id);
+    }
+    for (const w of clip.wires) {
+      const [sa, pa] = splitTerm(w.a), [sb, pb] = splitTerm(w.b);
+      if (map.has(sa) && map.has(sb)) this.connect(`${map.get(sa)}:${pa}`, `${map.get(sb)}:${pb}`);
+    }
+    for (const id of made) {   // 모듈 참조(드롭다운)도 새 블록으로 연결
+      const n = this.node(id);
+      if (n && n.st && n.st.dev && map.has(n.st.dev)) n.st.dev = map.get(n.st.dev);
+    }
+    this.selNodes = new Set(made);
+    this.sel = made.length ? { kind: 'node', id: made[0] } : null;
+    this.fillDevSelects();
+    this.refreshConn();
+    this.refreshSelection();
+    this.app.changed({});
+    this.app.toast(`블록 ${made.length}개를 붙여넣었습니다`, 'ok');
   }
 
   addNode(type, x, y, extra = {}) {
@@ -297,10 +404,10 @@ class Editor {
   }
 
   duplicate() {
-    if (!this.sel || this.sel.kind !== 'node') return;
-    const n = this.node(this.sel.id);
-    if (!n || BOARDS[n.type]) return;
-    this.addNode(n.type, n.x + 30, n.y + 30, { st: JSON.parse(JSON.stringify(n.st)), flip: n.flip });
+    const before = this.app.clip;
+    this.copy(false);
+    this.paste(null);
+    this.app.clip = before || this.app.clip;
   }
 
   // ---------- 포트 정보 / 연결 ----------
@@ -469,6 +576,37 @@ class Editor {
     });
   }
 
+  // ---------- 우클릭 편집 메뉴 ----------
+  showMenu(ev) {
+    const m = document.getElementById('ctxMenu');
+    if (!m) return;
+    this.menuAt = this.toWorld(ev.clientX, ev.clientY);
+    const has = this.selNodes.size > 0;
+    const clip = !!(this.app.clip && this.app.clip.nodes.length);
+    m.innerHTML = [
+      ['copy', '📋 복사', 'Ctrl+C', has], ['cut', '✂ 잘라내기', 'Ctrl+X', has],
+      ['paste', '📌 붙여넣기', 'Ctrl+V', clip], ['dup', '⧉ 복제', 'Ctrl+D', has],
+      ['del', '🗑 삭제', 'Delete', has || (this.sel && this.sel.kind === 'wire')],
+      ['all', '▣ 전체 선택', 'Ctrl+A', true],
+    ].map(([k, t, s, on]) => `<div data-act="${k}" class="${on ? '' : 'off'}">${t}<small>${s}</small></div>`).join('');
+    m.style.left = ev.clientX + 'px';
+    m.style.top = ev.clientY + 'px';
+    m.hidden = false;
+    m.onclick = e => {
+      const it = e.target.closest('[data-act]');
+      if (!it || it.classList.contains('off')) return;
+      const a = it.dataset.act;
+      this.hideMenu();
+      if (a === 'copy') this.copy(false);
+      else if (a === 'cut') this.copy(true);
+      else if (a === 'paste') this.paste(this.menuAt);
+      else if (a === 'dup') this.duplicate();
+      else if (a === 'del') this.deleteSelection();
+      else if (a === 'all') this.selectAll();
+    };
+  }
+  hideMenu() { const m = document.getElementById('ctxMenu'); if (m) m.hidden = true; }
+
   // 시뮬레이션 상태 표시 (프레임마다)
   renderLive() {
     const sim = this.app.sim;
@@ -485,15 +623,54 @@ class Editor {
   // ---------- 캔버스 이벤트 ----------
   bind() {
     const el = this.el;
+    // 오른쪽(또는 가운데) 버튼 드래그 = 화면 이동, 왼쪽 드래그 = 영역 선택
+    el.addEventListener('contextmenu', e => { e.preventDefault(); });
     el.addEventListener('pointerdown', e => {
-      if (e.button !== 0 && e.button !== 1) return;
-      if (e.target.closest('.node')) return;
-      this.select(null);
-      const sx = e.clientX, sy = e.clientY, ox = this.view.x, oy = this.view.y;
-      el.setPointerCapture(e.pointerId);
-      el.classList.add('panning');
-      const mv = ev => { this.view.x = ox + ev.clientX - sx; this.view.y = oy + ev.clientY - sy; this.applyView(); };
-      const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.classList.remove('panning'); };
+      if (e.button === 2 || e.button === 1 || e.altKey) {
+        const sx = e.clientX, sy = e.clientY, ox = this.view.x, oy = this.view.y;
+        try { el.setPointerCapture(e.pointerId); } catch (err) { }
+        el.classList.add('panning');
+        let moved = false;
+        const mv = ev => {
+          if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) moved = true;
+          this.view.x = ox + ev.clientX - sx; this.view.y = oy + ev.clientY - sy; this.applyView();
+        };
+        const up = ev => {
+          el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
+          el.classList.remove('panning');
+          if (!moved && e.button === 2) this.showMenu(ev);   // 제자리 우클릭 = 편집 메뉴
+        };
+        el.addEventListener('pointermove', mv);
+        el.addEventListener('pointerup', up);
+        return;
+      }
+      if (e.button !== 0 || e.target.closest('.node')) return;
+      // 영역(러버밴드) 선택
+      const base = e.shiftKey ? new Set(this.selNodes) : new Set();
+      if (!e.shiftKey) this.select(null);
+      const p0 = this.toWorld(e.clientX, e.clientY);
+      const box = document.createElement('div');
+      box.className = 'selbox';
+      this.world.appendChild(box);
+      try { el.setPointerCapture(e.pointerId); } catch (err) { }
+      const mv = ev => {
+        const p = this.toWorld(ev.clientX, ev.clientY);
+        const x = Math.min(p0.x, p.x), y = Math.min(p0.y, p.y), w = Math.abs(p.x - p0.x), h = Math.abs(p.y - p0.y);
+        box.style.left = x + 'px'; box.style.top = y + 'px'; box.style.width = w + 'px'; box.style.height = h + 'px';
+        const sel = new Set(base);
+        for (const n of this.g.nodes) {
+          if (!n.el) continue;
+          if (n.x < x + w && n.x + n.el.offsetWidth > x && n.y < y + h && n.y + n.el.offsetHeight > y) sel.add(n.id);
+        }
+        this.selNodes = sel;
+        this.markSelected();
+      };
+      const up = () => {
+        el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
+        box.remove();
+        this.sel = this.selNodes.size ? { kind: 'node', id: [...this.selNodes][0] } : null;
+        this.refreshSelection();
+      };
       el.addEventListener('pointermove', mv);
       el.addEventListener('pointerup', up);
     });
@@ -503,6 +680,7 @@ class Editor {
       this.zoomBy(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
     }, { passive: false });
     el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/pb-type')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    document.addEventListener('pointerdown', e => { if (!e.target.closest('#ctxMenu')) this.hideMenu(); }, true);
     el.addEventListener('drop', e => {
       const type = e.dataTransfer.getData('text/pb-type');
       if (!type) return;
