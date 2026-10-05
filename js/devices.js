@@ -530,36 +530,39 @@ DEVICES.fnd_ca = fndDevice(true);
 //       SW4~SW1 = GP12~GP15(누르면 GND) / 가변저항 = GP29(ADC3)
 const SHIELD = {
   seg: ['GP0', 'GP1', 'GP2', 'GP3', 'GP4', 'GP5', 'GP6'],
-  led: ['GP7', 'GP8', 'GP9', 'GP10'],
+  led: ['GP7', 'GP8', 'GP13', 'GP12'],    // D1~D4
   buzzer: 'GP11',
-  sw: ['GP15', 'GP14', 'GP13', 'GP12'],   // SW1~SW4
+  sw: ['GP15', 'GP14', 'GP9', 'GP10'],    // SW1~SW4
   pot: 'GP29',
 };
 const SHIELD_PINS = ['5V', 'GND', '3V3', 'GP29', 'GP28', 'GP27', 'GP26', 'GP15', 'GP14',
   'GP0', 'GP1', 'GP2', 'GP3', 'GP4', 'GP5', 'GP6', 'GP7', 'GP8', 'GP13', 'GP12', 'GP11', 'GP10', 'GP9'];
 
+// 실제 PCB 배치: U1(7세그)은 상단 전체 폭, RV1·Q1은 좌측 중앙, D1~D4는 우측 중앙 세로,
+// SW1~SW4는 하단 2x2, BZ1(부저)은 보드 뒷면
 function shieldHTML(n, big) {
-  // 7세그 숫자는 모듈 가운데, LED 4개는 7세그 오른쪽에 세로 배치
-  const seg = Object.entries(FND_SHAPE).map(([k, d]) => `<path class="sseg" data-sseg="${k}" d="${d}" transform="translate(72,32) scale(0.64)"/>`).join('');
-  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="152" cy="${40 + i * 19}" r="5.5"/>
-    <text class="slbl start" x="162" y="${43 + i * 19}">D${i + 1}</text>`).join('');
+  const seg = Object.entries(FND_SHAPE).map(([k, d]) => `<path class="sseg" data-sseg="${k}" d="${d}" transform="translate(83.4,32.5) scale(0.52)"/>`).join('');
+  const leds = SHIELD.led.map((_, i) => `<circle class="sled" data-sled="${i}" cx="150" cy="${100 + i * 18}" r="5"/>
+    <text class="slbl start" x="160" y="${103 + i * 18}">D${i + 1}</text>`).join('');
   const btns = [0, 1, 2, 3].map(i => {
-    const x = 48 + (i % 2) * 62, y = 158 + ((i / 2) | 0) * 46;
-    return `<g class="sbtn" data-hold="sw${i + 1}"><rect x="${x}" y="${y}" width="40" height="34" rx="4"/>
-      <circle cx="${x + 20}" cy="${y + 17}" r="9"/><text class="slbl" x="${x + 20}" y="${y + 46}">SW${i + 1}</text></g>`;
+    const x = 60 + (i % 2) * 56, y = 158 + ((i / 2) | 0) * 40;
+    return `<g class="sbtn" data-hold="sw${i + 1}"><rect x="${x}" y="${y}" width="38" height="30" rx="4"/>
+      <circle cx="${x + 19}" cy="${y + 15}" r="8"/><text class="slbl" x="${x + 19}" y="${y + 38}">SW${i + 1}</text></g>`;
   }).join('');
   return `<svg class="v-shield${big ? ' big' : ''}" viewBox="0 0 200 252">
     <rect class="zero" x="30" y="0" width="140" height="30" rx="3"/><rect class="usbc" x="84" y="-4" width="32" height="11" rx="3"/>
     <text class="zlbl" x="100" y="22">RP2040-Zero</text>
     <rect class="pcb" x="6" y="26" width="188" height="222" rx="5"/>
-    <g class="hdr">${[...Array(9)].map((_, i) => `<circle cx="14" cy="${44 + i * 20}" r="4"/><circle cx="186" cy="${44 + i * 20}" r="4"/>`).join('')}
-      ${[...Array(5)].map((_, i) => `<circle cx="${62 + i * 19}" cy="242" r="4"/>`).join('')}</g>
-    <rect class="fndbg" x="56" y="28" width="72" height="72" rx="3"/>${seg}
+    <g class="hdr">${[...Array(9)].map((_, i) => `<circle cx="14" cy="${44 + i * 21}" r="4"/><circle cx="186" cy="${44 + i * 21}" r="4"/>`).join('')}
+      ${[...Array(5)].map((_, i) => `<circle cx="${62 + i * 19}" cy="243" r="4"/>`).join('')}</g>
+    <rect class="fndbg" x="40" y="30" width="120" height="58" rx="3"/>
+    <text class="slbl u1" x="46" y="40">U1</text>${seg}
     ${leds}
-    <g class="pot" data-pot><circle cx="26" cy="150" r="13"/><line x1="26" y1="150" x2="26" y2="139"/></g>
-    <text class="slbl" x="26" y="172">RV1</text>
-    <g class="buzz"><circle cx="174" cy="150" r="12"/><circle class="hole" cx="174" cy="150" r="3"/></g>
-    <text class="slbl" x="174" y="172">BZ1</text>
+    <g class="pot" data-pot><circle cx="34" cy="106" r="13"/><line x1="34" y1="106" x2="34" y2="95"/></g>
+    <text class="slbl" x="34" y="126">RV1</text>
+    <rect class="chip" x="26" y="134" width="17" height="10" rx="1.5"/><text class="slbl" x="34" y="153">Q1</text>
+    <g class="buzz"><circle cx="34" cy="178" r="11"/><circle class="hole" cx="34" cy="178" r="3"/></g>
+    <text class="slbl" x="34" y="197">BZ1</text><text class="slbl tiny" x="34" y="206">(뒷면)</text>
     ${btns}
   </svg>`;
 }

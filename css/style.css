@@ -457,6 +457,10 @@ body[data-lang="cpp"] .grp.pico button:disabled { opacity: .35; }
 .v-shield .sled.on { fill: #3da5ff; filter: drop-shadow(0 0 6px #3da5ff); }
 .v-shield .slbl { fill: #8b949e; font-size: 7px; text-anchor: middle; font-family: Consolas, monospace; }
 .v-shield .slbl.start { text-anchor: start; }
+.v-shield .slbl.tiny { font-size: 5.5px; }
+.v-shield .slbl.u1 { text-anchor: start; fill: #6d7682; }
+.v-shield .chip { fill: #0f1216; stroke: #39404a; }
+.v-shield .buzz circle { stroke-dasharray: 3 2; }
 .v-shield .pot circle { fill: #2b3038; stroke: #6c7686; cursor: grab; }
 .v-shield .pot line { stroke: #e8eef7; stroke-width: 2.5; stroke-linecap: round; }
 .v-shield .buzz circle { fill: #1c1f25; stroke: #555c68; }
