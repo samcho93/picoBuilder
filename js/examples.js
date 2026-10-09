@@ -524,6 +524,39 @@ while True:
       };
     }, 'rp2040zero'),
   },
+  {
+    board: 'rp2040zero',
+    name: 'Ⓢ⑨ 미니보드', desc: '시작하면 도·레·미, 1초마다 7세그에 랜덤 숫자, SW1~SW4로 D1~D4 켜기',
+    build: () => buildProject('미니보드', E => {
+      const sh = addShield(E);
+      // 시작음: 도·레·미
+      const start = E.node('ev_start', 1180, 40);
+      let prev = start;
+      ['C4', 'D4', 'E4'].forEach((note, i) => {
+        const bz = E.node('sh_buzzer', 1380 + i * 215, 40, { mode: 'note', note });
+        E.ref(sh, bz); E.flow(prev, bz); prev = bz;
+      });
+      // SW1~SW4를 눌러 D1~D4 켜기 (10ms마다 확인)
+      const loop = E.node('ev_loop', 1180, 250, { delay: 10 });
+      const ids = [loop];
+      for (let i = 0; i < 4; i++) {
+        const led = E.node('sh_led', 1400 + i * 215, 250);
+        Object.assign(nodeSt(E, led), { i });
+        const btn = E.node('sh_btn', 1400 + i * 215, 400, { i: String(i) });
+        E.ref(sh, led); E.ref(sh, btn);
+        E.data(btn + '.p', led + '.on');
+        ids.push(led);
+      }
+      E.flow(...ids);
+      // 1초 타이머마다 7세그에 0~9 랜덤 숫자
+      const tm = E.node('ev_timer', 1180, 560, { period: 1000 });
+      const seg = E.node('sh_seg', 1400, 560);
+      const rnd = E.node('random', 1180, 680);
+      Object.assign(nodeSt(E, rnd), { hi: 9 });
+      E.ref(sh, seg); E.flow(tm, seg);
+      E.data(rnd + '.r', seg + '.value');
+    }, 'rp2040zero'),
+  },
 );
 
 // ---------------- 구형 Arduino (Uno R3 / Nano 328P) 예제 ----------------
